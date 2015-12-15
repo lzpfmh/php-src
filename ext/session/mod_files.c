@@ -25,7 +25,7 @@
  *                    - PS_CREATE_ID() is called if session ID(key) is not
  *                      provided or invalid. PS_VALIDATE_SID() is called to
  *                      verify session ID already exists or not to mitigate
- *                      session adoption vulunerabilty risk.
+ *                      session adoption vulnerability risk.
  *    PS_READ_FUNC()  - Read data from storage.
  *    PS_GC_FUNC()    - Perform GC. Called by probability
  *                                (session.gc_probability/session.gc_divisor).
@@ -34,7 +34,7 @@
  *                      It depends on session data change.
  *    PS_CLOSE_FUNC() - Clean up module data created by PS_OPEN_FUNC().
  *
- * Session module gurantees PS_OPEN_FUNC() is called before calling other
+ * Session module guarantees PS_OPEN_FUNC() is called before calling other
  * PS_*_FUNC() functions. Other than this, session module may call any
  * PS_*_FUNC() at any time. You may assume non null *mod_data created by
  * PS_OPEN_FUNC() is passed to PS_*_FUNC().
@@ -46,7 +46,7 @@
  *  - Save handler _MUST_ use PS_GET_MOD_DATA()/PS_SET_MOD_DATA() macro to
  *    set/get save handler module data(mod_data). mod_data contains
  *    data required by PS modules. It will not be NULL except PS_OPEN_FUNC().
- *  - Refer to PS_* macros in php_session.h for function/parameter defitions.
+ *  - Refer to PS_* macros in php_session.h for function/parameter definitions.
  *  - Returning FAILURE state from PS_* function results in raising errors.
  *    Avoid failure state as much as possible.
  *  - Use static ps_[module name]_[function name] functions for internal use.
@@ -111,7 +111,7 @@ static char *ps_files_path_create(char *buf, size_t buflen, ps_files *data, cons
 	size_t key_len;
 	const char *p;
 	int i;
-	int n;
+	size_t n;
 
 	key_len = strlen(key);
 	if (key_len <= data->dirdepth ||
@@ -159,6 +159,7 @@ static void ps_files_open(ps_files *data, const char *key)
 #if !defined(O_NOFOLLOW) || !defined(PHP_WIN32)
     struct stat sbuf;
 #endif
+	int ret;
 
 	if (data->fd < 0 || !data->lastkey || strcmp(key, data->lastkey)) {
 		if (data->lastkey) {
@@ -201,7 +202,9 @@ static void ps_files_open(ps_files *data, const char *key)
 				return;
 			}
 #endif
-			flock(data->fd, LOCK_EX);
+			do {
+				ret = flock(data->fd, LOCK_EX);
+			} while (ret == -1 && errno == EINTR);
 
 #ifdef F_SETFD
 # ifndef FD_CLOEXEC
@@ -219,29 +222,46 @@ static void ps_files_open(ps_files *data, const char *key)
 
 static int ps_files_write(ps_files *data, zend_string *key, zend_string *val)
 {
-	zend_long n;
+	zend_long n = 0;
 
 	/* PS(id) may be changed by calling session_regenerate_id().
 	   Re-initialization should be tried here. ps_files_open() checks
        data->lastkey and reopen when it is needed. */
-	ps_files_open(data, key->val);
+	ps_files_open(data, ZSTR_VAL(key));
 	if (data->fd < 0) {
 		return FAILURE;
 	}
 
 	/* Truncate file if the amount of new data is smaller than the existing data set. */
-	if (val->len < (int)data->st_size) {
+	if (ZSTR_LEN(val) < data->st_size) {
 		php_ignore_value(ftruncate(data->fd, 0));
 	}
 
 #if defined(HAVE_PWRITE)
-	n = pwrite(data->fd, val->val, val->len, 0);
+	n = pwrite(data->fd, ZSTR_VAL(val), ZSTR_LEN(val), 0);
 #else
 	lseek(data->fd, 0, SEEK_SET);
-	n = write(data->fd, val->val, val->len);
+#ifdef PHP_WIN32
+	{
+		unsigned int to_write = ZSTR_LEN(val) > UINT_MAX ? UINT_MAX : (unsigned int)ZSTR_LEN(val);
+		char *buf = ZSTR_VAL(val);
+		int wrote;
+
+		do {
+			wrote = _write(data->fd, buf, to_write);
+
+			n += wrote;
+			buf = wrote > -1 ? buf + wrote : 0;
+			to_write = wrote > -1 ? (ZSTR_LEN(val) - n > UINT_MAX ? UINT_MAX : (unsigned int)(ZSTR_LEN(val) - n)): 0;
+
+		} while(wrote > 0);
+	}
+#else
+	n = write(data->fd, ZSTR_VAL(val), ZSTR_LEN(val));
+#endif
 #endif
 
-	if (n != val->len) {
+	if (n != ZSTR_LEN(val)) {
 		if (n == -1) {
 			php_error_docref(NULL, E_WARNING, "write failed: %s (%d)", strerror(errno), errno);
 		} else {
@@ -253,7 +273,7 @@ static int ps_files_write(ps_files *data, zend_string *key, zend_string *val)
 	return SUCCESS;
 }
 
-static int ps_files_cleanup_dir(const char *dirname, int maxlifetime)
+static int ps_files_cleanup_dir(const char *dirname, zend_long maxlifetime)
 {
 	DIR *dir;
 	char dentry[sizeof(struct dirent) + MAXPATHLEN];
@@ -333,7 +353,7 @@ static int ps_files_key_exists(ps_files *data, const char *key)
  * Files save handler checks/create save_path directory and setup ps_files data.
  * Note that files save handler supports splitting session data into multiple
  * directories.
- * *mod_data, *save_path, *session_name are guranteed to have non-NULL values.
+ * *mod_data, *save_path, *session_name are guaranteed to have non-NULL values.
  */
 PS_OPEN_FUNC(files)
 {
@@ -375,7 +395,7 @@ PS_OPEN_FUNC(files)
 
 	if (argc > 2) {
 		errno = 0;
-		filemode = ZEND_STRTOL(argv[1], NULL, 8);
+		filemode = (int)ZEND_STRTOL(argv[1], NULL, 8);
 		if (errno == ERANGE || filemode < 0 || filemode > 07777) {
 			php_error(E_WARNING, "The second parameter in session.save_path is invalid");
 			return FAILURE;
@@ -406,7 +426,7 @@ PS_OPEN_FUNC(files)
  * RETURN VALUE: SUCCESS. Must set PS module data(void **mod_data) to NULL.
  *
  * Files save handler closes open files and it's memory.
- * *mod_data is guranteed to have non-NULL value.
+ * *mod_data is guaranteed to have non-NULL value.
  * PS_CLOSE_FUNC() must set *mod_data to NULL. PS_CLOSE_FUNC() should not
  * fail.
  */
@@ -418,11 +438,12 @@ PS_CLOSE_FUNC(files)
 
 	if (data->lastkey) {
 		efree(data->lastkey);
+		data->lastkey = NULL;
 	}
 
 	efree(data->basedir);
 	efree(data);
-	*mod_data = NULL;
+	PS_SET_MOD_DATA(NULL);
 
 	return SUCCESS;
 }
@@ -436,15 +457,15 @@ PS_CLOSE_FUNC(files)
  *
  * Files save handler supports splitting session data into multiple
  * directories.
- * *mod_data, *key are guranteed to have non-NULL values.
+ * *mod_data, *key are guaranteed to have non-NULL values.
  */
 PS_READ_FUNC(files)
 {
-	zend_long n;
+	zend_long n = 0;
 	zend_stat_t sbuf;
 	PS_FILES_DATA;
 
-	ps_files_open(data, key->val);
+	ps_files_open(data, ZSTR_VAL(key));
 	if (data->fd < 0) {
 		return FAILURE;
 	}
@@ -456,30 +477,49 @@ PS_READ_FUNC(files)
 	data->st_size = sbuf.st_size;
 
 	if (sbuf.st_size == 0) {
-		*val = STR_EMPTY_ALLOC();
+		*val = ZSTR_EMPTY_ALLOC();
 		return SUCCESS;
 	}
 
 	*val = zend_string_alloc(sbuf.st_size, 0);
 
 #if defined(HAVE_PREAD)
-	n = pread(data->fd, (*val)->val, (*val)->len, 0);
+	n = pread(data->fd, ZSTR_VAL(*val), ZSTR_LEN(*val), 0);
 #else
 	lseek(data->fd, 0, SEEK_SET);
-	n = read(data->fd, (*val)->val, (*val)->len);
+#ifdef PHP_WIN32
+	{
+		unsigned int to_read = ZSTR_LEN(*val) > UINT_MAX ? UINT_MAX : (unsigned int)ZSTR_LEN(*val);
+		char *buf = ZSTR_VAL(*val);
+		int read_in;
+
+		do {
+			read_in = _read(data->fd, buf, to_read);
+
+			n += read_in;
+			buf = read_in > -1 ? buf + read_in : 0;
+			to_read = read_in > -1 ? (ZSTR_LEN(*val) - n > UINT_MAX ? UINT_MAX : (unsigned int)(ZSTR_LEN(*val) - n)): 0;
+
+		} while(read_in > 0);
+
+	}
+#else
+	n = read(data->fd, ZSTR_VAL(*val), ZSTR_LEN(*val));
+#endif
 #endif
 
-	if (n != sbuf.st_size) {
+	if (n != (zend_long)sbuf.st_size) {
 		if (n == -1) {
 			php_error_docref(NULL, E_WARNING, "read failed: %s (%d)", strerror(errno), errno);
 		} else {
 			php_error_docref(NULL, E_WARNING, "read returned less bytes than requested");
 		}
 		zend_string_release(*val);
-		*val =  STR_EMPTY_ALLOC();
+		*val =  ZSTR_EMPTY_ALLOC();
 		return FAILURE;
 	}
 
+	ZSTR_VAL(*val)[ZSTR_LEN(*val)] = '\0';
 	return SUCCESS;
 }
 
@@ -490,7 +530,7 @@ PS_READ_FUNC(files)
  * RETURN VALUE: SUCCESS or FAILURE.
  *
  * PS_WRITE_FUNC() must write session data(zend_string *val) unconditionally.
- * *mod_data, *key, *val are guranteed to have non-NULL values.
+ * *mod_data, *key, *val are guaranteed to have non-NULL values.
  */
 PS_WRITE_FUNC(files)
 {
@@ -508,10 +548,10 @@ PS_WRITE_FUNC(files)
  * PS_UPDATE_TIMESTAMP_FUNC() updates time stamp(mtime) so that active session
  * data files will not be purged by GC. If session data storage does not need to
  * update timestamp, it should return SUCCESS simply. (e.g. Memcache)
- * *mod_data, *key, *val are guranteed to have non-NULL values.
+ * *mod_data, *key, *val are guaranteed to have non-NULL values.
  *
  * NOTE: Updating access timestamp at PS_READ_FUNC() may extend life of obsolete
- * session data. Use of PS_UPDATE_TIMESTAMP_FUNC() is prefered whenenver it is
+ * session data. Use of PS_UPDATE_TIMESTAMP_FUNC() is preferred whenever it is
  * possible.
  */
 PS_UPDATE_TIMESTAMP_FUNC(files)
@@ -522,7 +562,7 @@ PS_UPDATE_TIMESTAMP_FUNC(files)
 	int ret;
 	PS_FILES_DATA;
 
-	if (!ps_files_path_create(buf, sizeof(buf), data, key->val)) {
+	if (!ps_files_path_create(buf, sizeof(buf), data, ZSTR_VAL(key))) {
 		return FAILURE;
 	}
 
@@ -550,14 +590,14 @@ PS_UPDATE_TIMESTAMP_FUNC(files)
  * PS_DESTROY_FUNC() must remove the session data specified by *key from
  * session data storage unconditionally. It must not return FAILURE for
  * non-existent session data.
- * *mod_data, *key are guranteed to have non-NULL values.
+ * *mod_data, *key are guaranteed to have non-NULL values.
  */
 PS_DESTROY_FUNC(files)
 {
 	char buf[MAXPATHLEN];
 	PS_FILES_DATA;
 
-	if (!ps_files_path_create(buf, sizeof(buf), data, key->val)) {
+	if (!ps_files_path_create(buf, sizeof(buf), data, ZSTR_VAL(key))) {
 		return FAILURE;
 	}
 
@@ -586,7 +626,7 @@ PS_DESTROY_FUNC(files)
  * 'session.maxlifetime'(seconds). If storage does not need manual GC, it
  * may return SUCCESS simply. (e.g. Memcache) It must set number of records
  * deleted(nrdels).
- * *mod_data is guranteed to have non-NULL value.
+ * *mod_data is guaranteed to have non-NULL value.
  */
 PS_GC_FUNC(files)
 {
@@ -611,7 +651,7 @@ PS_GC_FUNC(files)
  *
  * PS_CREATE_SID_FUNC() must check collision. i.e. Check session data if
  * new sid exists already.
- * *mod_data is guranteed to have non-NULL value.
+ * *mod_data is guaranteed to have non-NULL value.
  * NOTE: Default php_session_create_id() does not check collision. If
  * NULL is returned, session module create new ID by using php_session_create_id().
  * If php_session_create_id() fails due to invalid configuration, it raises E_ERROR.
@@ -634,7 +674,7 @@ PS_CREATE_SID_FUNC(files)
 		}
 		/* Check collision */
 		/* FIXME: mod_data(data) should not be NULL (User handler could be NULL) */
-		if (data && ps_files_key_exists(data, sid->val) == SUCCESS) {
+		if (data && ps_files_key_exists(data, ZSTR_VAL(sid)) == SUCCESS) {
 			if (sid) {
 				zend_string_release(sid);
 				sid = NULL;
@@ -654,15 +694,15 @@ PS_CREATE_SID_FUNC(files)
  * PARAMETERS: PS_VALIDATE_SID_ARGS in php_session.h
  * RETURN VALUE: SUCCESS or FAILURE.
  *
- * Return SUCCESS for valid key(already exsting session).
+ * Return SUCCESS for valid key(already existing session).
  * Return FAILURE for invalid key(non-existing session).
- * *mod_data, *key are guranteed to have non-NULL values.
+ * *mod_data, *key are guaranteed to have non-NULL values.
  */
 PS_VALIDATE_SID_FUNC(files)
 {
 	PS_FILES_DATA;
 
-	return ps_files_key_exists(data, key->val);
+	return ps_files_key_exists(data, ZSTR_VAL(key));
 }
 
 /*

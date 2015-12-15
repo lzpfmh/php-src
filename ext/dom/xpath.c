@@ -194,9 +194,9 @@ static void dom_xpath_ext_function_php(xmlXPathParserContextPtr ctxt, int nargs,
 	fci.no_separation = 0;
 
 	if (!zend_make_callable(&fci.function_name, &callable)) {
-		php_error_docref(NULL, E_WARNING, "Unable to call handler %s()", callable->val);
+		php_error_docref(NULL, E_WARNING, "Unable to call handler %s()", ZSTR_VAL(callable));
 	} else if (intern->registerPhpFunctions == 2 && zend_hash_exists(intern->registered_phpfunctions, callable) == 0) {
-		php_error_docref(NULL, E_WARNING, "Not allowed to call handler '%s()'.", callable->val);
+		php_error_docref(NULL, E_WARNING, "Not allowed to call handler '%s()'.", ZSTR_VAL(callable));
 		/* Push an empty string, so that we at least have an xslt result... */
 		valuePush(ctxt, xmlXPathNewString((xmlChar *)""));
 	} else {
@@ -209,7 +209,7 @@ static void dom_xpath_ext_function_php(xmlXPathParserContextPtr ctxt, int nargs,
 					ALLOC_HASHTABLE(intern->node_list);
 					zend_hash_init(intern->node_list, 0, NULL, ZVAL_PTR_DTOR, 0);
 				}
-				GC_REFCOUNT(&retval)++;
+				Z_ADDREF(retval);
 				zend_hash_next_index_insert(intern->node_list, &retval);
 				obj = Z_DOMOBJ_P(&retval);
 				nodep = dom_object_get_node(obj);
@@ -221,7 +221,7 @@ static void dom_xpath_ext_function_php(xmlXPathParserContextPtr ctxt, int nargs,
 				valuePush(ctxt, xmlXPathNewString((xmlChar *)""));
 			} else {
 				zend_string *str = zval_get_string(&retval);
-				valuePush(ctxt, xmlXPathNewString((xmlChar *) str->val));
+				valuePush(ctxt, xmlXPathNewString((xmlChar *) ZSTR_VAL(str)));
 				zend_string_release(str);
 			}
 			zval_ptr_dtor(&retval);
@@ -253,20 +253,16 @@ static void dom_xpath_ext_function_object_php(xmlXPathParserContextPtr ctxt, int
 /* {{{ proto void DOMXPath::__construct(DOMDocument doc) U */
 PHP_METHOD(domxpath, __construct)
 {
-	zval *id, *doc;
+	zval *id = getThis(), *doc;
 	xmlDocPtr docp = NULL;
 	dom_object *docobj;
 	dom_xpath_object *intern;
 	xmlXPathContextPtr ctx, oldctx;
-	zend_error_handling error_handling;
 
-	zend_replace_error_handling(EH_THROW, dom_domexception_class_entry, &error_handling);
-	if (zend_parse_method_parameters(ZEND_NUM_ARGS(), getThis(), "OO", &id, dom_xpath_class_entry, &doc, dom_document_class_entry) == FAILURE) {
-		zend_restore_error_handling(&error_handling);
+	if (zend_parse_parameters_throw(ZEND_NUM_ARGS(), "O", &doc, dom_document_class_entry) == FAILURE) {
 		return;
 	}
 
-	zend_restore_error_handling(&error_handling);
 	DOM_GET_OBJ(docp, doc, xmlDocPtr, docobj);
 
 	ctx = xmlXPathNewContext(docp);
@@ -313,7 +309,7 @@ int dom_xpath_document_read(dom_object *obj, zval *retval)
 }
 /* }}} */
 
-/* {{{ proto boolean dom_xpath_register_ns(string prefix, string uri); */
+/* {{{ proto boolean dom_xpath_register_ns(string prefix, string uri) */
 PHP_FUNCTION(dom_xpath_register_ns)
 {
 	zval *id;
@@ -494,14 +490,14 @@ static void php_xpath_eval(INTERNAL_FUNCTION_PARAMETERS, int type) /* {{{ */
 }
 /* }}} */
 
-/* {{{ proto DOMNodeList dom_xpath_query(string expr [,DOMNode context [, boolean registerNodeNS]]); */
+/* {{{ proto DOMNodeList dom_xpath_query(string expr [,DOMNode context [, boolean registerNodeNS]]) */
 PHP_FUNCTION(dom_xpath_query)
 {
 	php_xpath_eval(INTERNAL_FUNCTION_PARAM_PASSTHRU, PHP_DOM_XPATH_QUERY);
 }
 /* }}} end dom_xpath_query */
 
-/* {{{ proto mixed dom_xpath_evaluate(string expr [,DOMNode context [, boolean registerNodeNS]]); */
+/* {{{ proto mixed dom_xpath_evaluate(string expr [,DOMNode context [, boolean registerNodeNS]]) */
 PHP_FUNCTION(dom_xpath_evaluate)
 {
 	php_xpath_eval(INTERNAL_FUNCTION_PARAM_PASSTHRU, PHP_DOM_XPATH_EVALUATE);
@@ -520,14 +516,12 @@ PHP_FUNCTION(dom_xpath_register_php_functions)
 
 	if (zend_parse_parameters_ex(ZEND_PARSE_PARAMS_QUIET, ZEND_NUM_ARGS(), "a",  &array_value) == SUCCESS) {
 		intern = Z_XPATHOBJ_P(id);
-		zend_hash_internal_pointer_reset(Z_ARRVAL_P(array_value));
-		while ((entry = zend_hash_get_current_data(Z_ARRVAL_P(array_value)))) {
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(array_value), entry) {
 			zend_string *str = zval_get_string(entry);
 			ZVAL_LONG(&new_string,1);
 			zend_hash_update(intern->registered_phpfunctions, str, &new_string);
-			zend_hash_move_forward(Z_ARRVAL_P(array_value));
 			zend_string_release(str);
-		}
+		} ZEND_HASH_FOREACH_END();
 		intern->registerPhpFunctions = 2;
 		RETURN_TRUE;
 

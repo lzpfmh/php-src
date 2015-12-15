@@ -135,40 +135,25 @@ static zend_bool should_overwrite_per_dir_entry(HashTable *target_ht, zval *zv, 
 	}
 }
 
+void config_entry_ctor(zval *zv)
+{
+	php_dir_entry *pe = (php_dir_entry*)Z_PTR_P(zv);
+	php_dir_entry *npe = malloc(sizeof(php_dir_entry));
+
+	memcpy(npe, pe, sizeof(php_dir_entry));
+	ZVAL_PTR(zv, npe);
+}
 
 void *merge_php_config(apr_pool_t *p, void *base_conf, void *new_conf)
 {
 	php_conf_rec *d = base_conf, *e = new_conf, *n = NULL;
-#if STAS_0
-	php_dir_entry *pe;
-	php_dir_entry *data;
-	char *str;
-	uint str_len;
-	ulong num_index;
-#endif
 
 	n = create_php_config(p, "merge_php_config");
 	/* copy old config */
-	zend_hash_copy(&n->config, &d->config, NULL);
-//???	zend_hash_copy(&n->config, &d->config, NULL, NULL, sizeof(php_dir_entry));
+	zend_hash_copy(&n->config, &d->config, config_entry_ctor);
 	/* merge new config */
 	phpapdebug((stderr, "Merge dir (%p)+(%p)=(%p)\n", base_conf, new_conf, n));
-	zend_hash_merge_ex(&n->config, &e->config, NULL, should_overwrite_per_dir_entry, NULL);
-//???	zend_hash_merge_ex(&n->config, &e->config, NULL, sizeof(php_dir_entry), (merge_checker_func_t) should_overwrite_per_dir_entry, NULL);
-#if STAS_0
-	for (zend_hash_internal_pointer_reset(&d->config);
-			zend_hash_get_current_key(&d->config, &str, &str_len,
-				&num_index) == HASH_KEY_IS_STRING;
-			zend_hash_move_forward(&d->config)) {
-		pe = NULL;
-		zend_hash_get_current_data(&d->config, (void **) &data);
-		if (zend_hash_find(&n->config, str, str_len, (void **) &pe) == SUCCESS) {
-			if (pe->status >= data->status) continue;
-		}
-		phpapdebug((stderr, "ADDING/OVERWRITING %s (%d vs. %d)\n", str, data->status, pe?pe->status:-1));
-		zend_hash_update(&n->config, str, str_len, data, sizeof(*data), NULL);
-	}
-#endif
+	zend_hash_merge_ex(&n->config, &e->config, config_entry_ctor, should_overwrite_per_dir_entry, NULL);
 	return n;
 }
 
@@ -218,12 +203,17 @@ static apr_status_t destroy_php_config(void *data)
 	return APR_SUCCESS;
 }
 
+static void config_entry_dtor(zval *zv)
+{
+	free((php_dir_entry*)Z_PTR_P(zv));
+}
+
 void *create_php_config(apr_pool_t *p, char *dummy)
 {
 	php_conf_rec *newx = (php_conf_rec *) apr_pcalloc(p, sizeof(*newx));
 
 	phpapdebug((stderr, "Creating new config (%p) for %s\n", newx, dummy));
-	zend_hash_init(&newx->config, 0, NULL, NULL, 1);
+	zend_hash_init(&newx->config, 0, NULL, config_entry_dtor, 1);
 	apr_pool_cleanup_register(p, newx, destroy_php_config, apr_pool_cleanup_null);
 	return (void *) newx;
 }

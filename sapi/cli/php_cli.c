@@ -77,7 +77,6 @@
 #include "zend_compile.h"
 #include "zend_execute.h"
 #include "zend_highlight.h"
-#include "zend_indent.h"
 #include "zend_exceptions.h"
 
 #include "php_getopt.h"
@@ -95,12 +94,16 @@
 # include "win32/select.h"
 #endif
 
+#if defined(PHP_WIN32) && defined(HAVE_OPENSSL)
+# include "openssl/applink.c"
+#endif
+
 PHPAPI extern char *php_ini_opened_path;
 PHPAPI extern char *php_ini_scanned_path;
 PHPAPI extern char *php_ini_scanned_files;
 
 #if defined(PHP_WIN32) && defined(ZTS)
-ZEND_TSRMLS_CACHE_DEFINE;
+ZEND_TSRMLS_CACHE_DEFINE();
 #endif
 
 #ifndef O_BINARY
@@ -109,7 +112,6 @@ ZEND_TSRMLS_CACHE_DEFINE;
 
 #define PHP_MODE_STANDARD      1
 #define PHP_MODE_HIGHLIGHT     2
-#define PHP_MODE_INDENT        3
 #define PHP_MODE_LINT          4
 #define PHP_MODE_STRIP         5
 #define PHP_MODE_CLI_DIRECT    6
@@ -661,7 +663,6 @@ static int do_cli(int argc, char **argv) /* {{{ */
 	int lineno = 0;
 	const char *param_error=NULL;
 	int hide_argv = 0;
-	zend_string *key;
 
 	zend_try {
 
@@ -681,17 +682,20 @@ static int do_cli(int argc, char **argv) /* {{{ */
 				goto out;
 
 			case 'v': /* show php version & quit */
-				php_printf("PHP %s (%s) (built: %s %s) %s\nCopyright (c) 1997-2015 The PHP Group\n%s",
+				php_printf("PHP %s (%s) (built: %s %s) ( %s)\nCopyright (c) 1997-2015 The PHP Group\n%s",
 					PHP_VERSION, cli_sapi_module.name, __DATE__, __TIME__,
-#if ZEND_DEBUG && defined(HAVE_GCOV)
-					"(DEBUG GCOV)",
-#elif ZEND_DEBUG
-					"(DEBUG)",
-#elif defined(HAVE_GCOV)
-					"(GCOV)",
+#if ZTS
+					"ZTS "
 #else
-					"",
+					"NTS "
 #endif
+#if ZEND_DEBUG
+					"DEBUG "
+#endif
+#ifdef HAVE_GCOV
+					"GCOV "
+#endif
+					,
 					get_zend_version()
 				);
 				sapi_deactivate();
@@ -770,16 +774,6 @@ static int do_cli(int argc, char **argv) /* {{{ */
 				}
 				behavior=PHP_MODE_LINT;
 				break;
-
-#if 0 /* not yet operational, see also below ... */
-			case '': /* generate indented source mode*/
-				if (behavior == PHP_MODE_CLI_DIRECT || behavior == PHP_MODE_PROCESS_STDIN) {
-					param_error = "Source indenting only works for files.\n";
-					break;
-				}
-				behavior=PHP_MODE_INDENT;
-				break;
-#endif
 
 			case 'q': /* do not generate HTTP headers */
 				/* This is default so NOP */
@@ -965,9 +959,7 @@ static int do_cli(int argc, char **argv) /* {{{ */
 			}
 		}
 
-		key = zend_string_init("_SERVER", sizeof("_SERVER")-1, 0);
-		zend_is_auto_global(key);
-		zend_string_release(key);
+		zend_is_auto_global_str(ZEND_STRL("_SERVER"));
 
 		PG(during_request_startup) = 0;
 		switch (behavior) {
@@ -1008,15 +1000,6 @@ static int do_cli(int argc, char **argv) /* {{{ */
 				goto out;
 			}
 			break;
-#if 0
-			/* Zeev might want to do something with this one day */
-		case PHP_MODE_INDENT:
-			open_file_for_scanning(&file_handle);
-			zend_indent();
-			zend_file_handle_dtor(file_handle.handle);
-			goto out;
-			break;
-#endif
 		case PHP_MODE_CLI_DIRECT:
 			cli_register_file_handles();
 			if (zend_eval_string_ex(exec_direct, NULL, "Command line code", 1) == FAILURE) {
@@ -1036,14 +1019,14 @@ static int do_cli(int argc, char **argv) /* {{{ */
 					exit_status=254;
 				}
 				ZVAL_LONG(&argi, index);
-				zend_hash_str_update(&EG(symbol_table).ht, "argi", sizeof("argi")-1, &argi);
+				zend_hash_str_update(&EG(symbol_table), "argi", sizeof("argi")-1, &argi);
 				while (exit_status == SUCCESS && (input=php_stream_gets(s_in_process, NULL, 0)) != NULL) {
 					len = strlen(input);
 					while (len > 0 && len-- && (input[len]=='\n' || input[len]=='\r')) {
 						input[len] = '\0';
 					}
 					ZVAL_STRINGL(&argn, input, len);
-					zend_hash_str_update(&EG(symbol_table).ht, "argn", sizeof("argn")-1, &argn);
+					zend_hash_str_update(&EG(symbol_table), "argn", sizeof("argn")-1, &argn);
 					Z_LVAL(argi) = ++index;
 					if (exec_run) {
 						if (zend_eval_string_ex(exec_run, NULL, "Command line run code", 1) == FAILURE) {
@@ -1110,7 +1093,7 @@ static int do_cli(int argc, char **argv) /* {{{ */
 						zval tmp, *msg, rv;
 
 						ZVAL_OBJ(&tmp, EG(exception));
-						msg = zend_read_property(zend_exception_get_default(), &tmp, "message", sizeof("message")-1, 0, &rv);
+						msg = zend_read_property(zend_ce_exception, &tmp, "message", sizeof("message")-1, 0, &rv);
 						zend_printf("Exception: %s\n", Z_STRVAL_P(msg));
 						zval_ptr_dtor(&tmp);
 						EG(exception) = NULL;
@@ -1181,9 +1164,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 int main(int argc, char *argv[])
 #endif
 {
-#ifdef ZTS
-	void ***tsrm_ls;
-#endif
 #ifdef PHP_CLI_WIN32_NO_CONSOLE
 	int argc = __argc;
 	char **argv = __argv;
@@ -1239,8 +1219,12 @@ int main(int argc, char *argv[])
 
 #ifdef ZTS
 	tsrm_startup(1, 1, 0, NULL);
-	tsrm_ls = ts_resource(0);
-	ZEND_TSRMLS_CACHE_UPDATE;
+	(void)ts_resource(0);
+	ZEND_TSRMLS_CACHE_UPDATE();
+#endif
+
+#ifdef ZEND_SIGNALS
+	zend_signal_startup();
 #endif
 
 #ifdef PHP_WIN32

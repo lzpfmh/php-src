@@ -21,6 +21,9 @@
 #ifndef PHP_DBA_H
 #define PHP_DBA_H
 
+#include "php_version.h"
+#define PHP_DBA_VERSION PHP_VERSION
+
 #if HAVE_DBA
 
 typedef enum {
@@ -125,8 +128,6 @@ typedef struct dba_handler {
 	DBA_OPTIMIZE_FUNC(x); \
 	DBA_SYNC_FUNC(x); \
 	DBA_INFO_FUNC(x)
-
-#define VALLEN(p) Z_STRVAL_PP(p), Z_STRLEN_PP(p)
 
 PHP_FUNCTION(dba_open);
 PHP_FUNCTION(dba_popen);

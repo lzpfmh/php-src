@@ -45,9 +45,6 @@ typedef void (WINAPI *PGNSI)(LPSYSTEM_INFO);
 typedef BOOL (WINAPI *PGPI)(DWORD, DWORD, DWORD, DWORD, PDWORD);
 # include "winver.h"
 
-# if _MSC_VER < 1300
-#  define OSVERSIONINFOEX php_win_OSVERSIONINFOEX
-# endif
 #endif
 
 #define SECTION(name)	if (!sapi_module.phpinfo_as_text) { \
@@ -68,7 +65,7 @@ static int php_info_print_html_esc(const char *str, size_t len) /* {{{ */
 	zend_string *new_str;
 
 	new_str = php_escape_html_entities((unsigned char *) str, len, 0, ENT_QUOTES, "utf-8");
-	written = php_output_write(new_str->val, new_str->len);
+	written = php_output_write(ZSTR_VAL(new_str), ZSTR_LEN(new_str));
 	zend_string_free(new_str);
 	return written;
 }
@@ -102,7 +99,7 @@ static void php_info_print_stream_hash(const char *name, HashTable *ht) /* {{{ *
 
 	if (ht) {
 		if (zend_hash_num_elements(ht)) {
-			HashPosition pos;
+			int first = 1;
 
 			if (!sapi_module.phpinfo_as_text) {
 				php_info_printf("<tr><td class=\"e\">Registered %s</td><td class=\"v\">", name);
@@ -110,21 +107,20 @@ static void php_info_print_stream_hash(const char *name, HashTable *ht) /* {{{ *
 				php_info_printf("\nRegistered %s => ", name);
 			}
 
-			zend_hash_internal_pointer_reset_ex(ht, &pos);
-			while (zend_hash_get_current_key_ex(ht, &key, NULL, &pos) == HASH_KEY_IS_STRING)
-			{
-				if (!sapi_module.phpinfo_as_text) {
-					php_info_print_html_esc(key->val, key->len);
-				} else {
-					php_info_print(key->val);
+			ZEND_HASH_FOREACH_STR_KEY(ht, key) {
+				if (key) {
+					if (first) {
+						first = 0;
+					} else {
+						php_info_print(", ");
+					}
+					if (!sapi_module.phpinfo_as_text) {
+						php_info_print_html_esc(ZSTR_VAL(key), ZSTR_LEN(key));
+					} else {
+						php_info_print(ZSTR_VAL(key));
+					}
 				}
-				zend_hash_move_forward_ex(ht, &pos);
-				if (zend_hash_get_current_key_ex(ht, &key, NULL, &pos) == HASH_KEY_IS_STRING) {
-					php_info_print(", ");
-				} else {
-					break;
-				}
-			}
+			} ZEND_HASH_FOREACH_END();
 
 			if (!sapi_module.phpinfo_as_text) {
 				php_info_print("</td></tr>\n");
@@ -146,8 +142,8 @@ PHPAPI void php_info_print_module(zend_module_entry *zend_module) /* {{{ */
 		if (!sapi_module.phpinfo_as_text) {
 			zend_string *url_name = php_url_encode(zend_module->name, strlen(zend_module->name));
 
-			php_strtolower(url_name->val, url_name->len);
-			php_info_printf("<h2><a name=\"module_%s\">%s</a></h2>\n", url_name->val, zend_module->name);
+			php_strtolower(ZSTR_VAL(url_name), ZSTR_LEN(url_name));
+			php_info_printf("<h2><a name=\"module_%s\">%s</a></h2>\n", ZSTR_VAL(url_name), zend_module->name);
 
 			efree(url_name);
 		} else {
@@ -205,7 +201,7 @@ static void php_print_gpcse_array(char *name, uint name_length)
 	key = zend_string_init(name, name_length, 0);
 	zend_is_auto_global(key);
 
-	if ((data = zend_hash_find(&EG(symbol_table).ht, key)) != NULL && (Z_TYPE_P(data) == IS_ARRAY)) {
+	if ((data = zend_hash_find(&EG(symbol_table), key)) != NULL && (Z_TYPE_P(data) == IS_ARRAY)) {
 		ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(data), num_key, string_key, tmp) {
 			if (!sapi_module.phpinfo_as_text) {
 				php_info_print("<tr>");
@@ -218,9 +214,9 @@ static void php_print_gpcse_array(char *name, uint name_length)
 
 			if (string_key != NULL) {
 				if (!sapi_module.phpinfo_as_text) {
-					php_info_print_html_esc(string_key->val, string_key->len);
+					php_info_print_html_esc(ZSTR_VAL(string_key), ZSTR_LEN(string_key));
 				} else {
-					php_info_print(string_key->val);
+					php_info_print(ZSTR_VAL(string_key));
 				}
 			} else {
 				php_info_printf(ZEND_ULONG_FMT, num_key);
@@ -295,21 +291,14 @@ PHPAPI zend_string *php_info_html_esc(char *string)
 
 char* php_get_windows_name()
 {
-	OSVERSIONINFOEX osvi;
+	OSVERSIONINFOEX osvi = EG(windows_version_info);
 	SYSTEM_INFO si;
 	PGNSI pGNSI;
 	PGPI pGPI;
-	BOOL bOsVersionInfoEx;
 	DWORD dwType;
 	char *major = NULL, *sub = NULL, *retval;
 
 	ZeroMemory(&si, sizeof(SYSTEM_INFO));
-	ZeroMemory(&osvi, sizeof(OSVERSIONINFOEX));
-	osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
-
-	if (!(bOsVersionInfoEx = GetVersionEx ((OSVERSIONINFO *) &osvi))) {
-		return NULL;
-	}
 
 	pGNSI = (PGNSI) GetProcAddress(GetModuleHandle("kernel32.dll"), "GetNativeSystemInfo");
 	if(NULL != pGNSI) {
@@ -318,7 +307,17 @@ char* php_get_windows_name()
 		GetSystemInfo(&si);
 	}
 
-	if (VER_PLATFORM_WIN32_NT==osvi.dwPlatformId && osvi.dwMajorVersion > 4 ) {
+	if (VER_PLATFORM_WIN32_NT==osvi.dwPlatformId && osvi.dwMajorVersion >= 10) {
+		if (osvi.dwMajorVersion == 10) {
+			if( osvi.dwMinorVersion == 0 ) {
+				if( osvi.wProductType == VER_NT_WORKSTATION ) {
+					major = "Windows 10";
+				} else {
+					major = "Windows Server 2016";
+				}
+			}
+		}
+	} else if (VER_PLATFORM_WIN32_NT==osvi.dwPlatformId && osvi.dwMajorVersion >= 6) {
 		if (osvi.dwMajorVersion == 6) {
 			if( osvi.dwMinorVersion == 0 ) {
 				if( osvi.wProductType == VER_NT_WORKSTATION ) {
@@ -326,8 +325,7 @@ char* php_get_windows_name()
 				} else {
 					major = "Windows Server 2008";
 				}
-			} else
-			if ( osvi.dwMinorVersion == 1 ) {
+			} else if ( osvi.dwMinorVersion == 1 ) {
 				if( osvi.wProductType == VER_NT_WORKSTATION )  {
 					major = "Windows 7";
 				} else {
@@ -335,6 +333,11 @@ char* php_get_windows_name()
 				}
 			} else if ( osvi.dwMinorVersion == 2 ) {
 				/* could be Windows 8/Windows Server 2012, could be Windows 8.1/Windows Server 2012 R2 */
+				/* XXX and one more X - the above comment is true if no manifest is used for two cases:
+					- if the PHP build doesn't use the correct manifest
+					- if PHP DLL loaded under some binary that doesn't use the correct manifest 
+					
+					So keep the handling here as is for now, even if we know 6.2 is win8 and nothing else, and think about an improvement. */
 				OSVERSIONINFOEX osvi81;
 				DWORDLONG dwlConditionMask = 0;
 				int op = VER_GREATER_EQUAL;
@@ -365,6 +368,12 @@ char* php_get_windows_name()
 						major = "Windows Server 2012";
 					}
 				}
+			} else if (osvi.dwMinorVersion == 3) {
+				if( osvi.wProductType == VER_NT_WORKSTATION )  {
+					major = "Windows 8.1";
+				} else {
+					major = "Windows Server 2012 R2";
+				}
 			} else {
 				major = "Unknown Windows version";
 			}
@@ -376,32 +385,49 @@ char* php_get_windows_name()
 				case PRODUCT_ULTIMATE:
 					sub = "Ultimate Edition";
 					break;
-				case PRODUCT_HOME_PREMIUM:
-					sub = "Home Premium Edition";
-					break;
 				case PRODUCT_HOME_BASIC:
 					sub = "Home Basic Edition";
+					break;
+				case PRODUCT_HOME_PREMIUM:
+					sub = "Home Premium Edition";
 					break;
 				case PRODUCT_ENTERPRISE:
 					sub = "Enterprise Edition";
 					break;
+				case PRODUCT_HOME_BASIC_N:
+					sub = "Home Basic N Edition";
+					break;
 				case PRODUCT_BUSINESS:
-					sub = "Business Edition";
+					if ((osvi.dwMajorVersion > 6) || (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion > 0)) {
+						sub = "Professional Edition";
+					} else {
+						sub = "Business Edition";
+					}
 					break;
-				case PRODUCT_STARTER:
-					sub = "Starter Edition";
-					break;
-				case PRODUCT_CLUSTER_SERVER:
-					sub = "Cluster Server Edition";
+				case PRODUCT_STANDARD_SERVER:
+					sub = "Standard Edition";
 					break;
 				case PRODUCT_DATACENTER_SERVER:
 					sub = "Datacenter Edition";
 					break;
-				case PRODUCT_DATACENTER_SERVER_CORE:
-					sub = "Datacenter Edition (core installation)";
+				case PRODUCT_SMALLBUSINESS_SERVER:
+					sub = "Small Business Server";
 					break;
 				case PRODUCT_ENTERPRISE_SERVER:
 					sub = "Enterprise Edition";
+					break;
+				case PRODUCT_STARTER:
+					if ((osvi.dwMajorVersion > 6) || (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion > 0)) {
+						sub = "Starter N Edition";
+					} else {
+					    sub = "Starter Edition";
+					}
+					break;
+				case PRODUCT_DATACENTER_SERVER_CORE:
+					sub = "Datacenter Edition (core installation)";
+					break;
+				case PRODUCT_STANDARD_SERVER_CORE:
+					sub = "Standard Edition (core installation)";
 					break;
 				case PRODUCT_ENTERPRISE_SERVER_CORE:
 					sub = "Enterprise Edition (core installation)";
@@ -409,93 +435,193 @@ char* php_get_windows_name()
 				case PRODUCT_ENTERPRISE_SERVER_IA64:
 					sub = "Enterprise Edition for Itanium-based Systems";
 					break;
-				case PRODUCT_SMALLBUSINESS_SERVER:
-					sub = "Small Business Server";
-					break;
-				case PRODUCT_SMALLBUSINESS_SERVER_PREMIUM:
-					sub = "Small Business Server Premium Edition";
-					break;
-				case PRODUCT_STANDARD_SERVER:
-					sub = "Standard Edition";
-					break;
-				case PRODUCT_STANDARD_SERVER_CORE:
-					sub = "Standard Edition (core installation)";
+				case PRODUCT_BUSINESS_N:
+					if ((osvi.dwMajorVersion > 6) || (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion > 0)) {
+						sub = "Professional N Edition";
+					} else {
+						sub = "Business N Edition";
+					}
 					break;
 				case PRODUCT_WEB_SERVER:
 					sub = "Web Server Edition";
 					break;
-			}
-		}
-
-		if ( osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 2 ) {
-			if (GetSystemMetrics(SM_SERVERR2))
-				major = "Windows Server 2003 R2";
-			else if (osvi.wSuiteMask==VER_SUITE_STORAGE_SERVER)
-				major = "Windows Storage Server 2003";
-			else if (osvi.wSuiteMask==VER_SUITE_WH_SERVER)
-				major = "Windows Home Server";
-			else if (osvi.wProductType == VER_NT_WORKSTATION &&
-				si.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64) {
-				major = "Windows XP Professional x64 Edition";
-			} else {
-				major = "Windows Server 2003";
-			}
-
-			/* Test for the server type. */
-			if ( osvi.wProductType != VER_NT_WORKSTATION ) {
-				if ( si.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_IA64 ) {
-					if( osvi.wSuiteMask & VER_SUITE_DATACENTER )
-						sub = "Datacenter Edition for Itanium-based Systems";
-					else if( osvi.wSuiteMask & VER_SUITE_ENTERPRISE )
-						sub = "Enterprise Edition for Itanium-based Systems";
-				}
-
-				else if ( si.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64 ) {
-					if( osvi.wSuiteMask & VER_SUITE_DATACENTER )
-						sub = "Datacenter x64 Edition";
-					else if( osvi.wSuiteMask & VER_SUITE_ENTERPRISE )
-						sub = "Enterprise x64 Edition";
-					else sub = "Standard x64 Edition";
-				} else {
-					if ( osvi.wSuiteMask & VER_SUITE_COMPUTE_SERVER )
-						sub = "Compute Cluster Edition";
-					else if( osvi.wSuiteMask & VER_SUITE_DATACENTER )
-						sub = "Datacenter Edition";
-					else if( osvi.wSuiteMask & VER_SUITE_ENTERPRISE )
-						sub = "Enterprise Edition";
-					else if ( osvi.wSuiteMask & VER_SUITE_BLADE )
-						sub = "Web Edition";
-					else sub = "Standard Edition";
-				}
-			}
-		}
-
-		if ( osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 1 )	{
-			major = "Windows XP";
-			if( osvi.wSuiteMask & VER_SUITE_PERSONAL ) {
-				sub = "Home Edition";
-			} else if (GetSystemMetrics(SM_MEDIACENTER)) {
-				sub = "Media Center Edition";
-			} else if (GetSystemMetrics(SM_STARTER)) {
-				sub = "Starter Edition";
-			} else if (GetSystemMetrics(SM_TABLETPC)) {
-				sub = "Tablet PC Edition";
-			} else {
-				sub = "Professional";
-			}
-		}
-
-		if ( osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 0 ) {
-			major = "Windows 2000";
-
-			if (osvi.wProductType == VER_NT_WORKSTATION ) {
-				sub = "Professional";
-			} else {
-				if( osvi.wSuiteMask & VER_SUITE_DATACENTER )
-					sub = "Datacenter Server";
-				else if( osvi.wSuiteMask & VER_SUITE_ENTERPRISE )
-					sub = "Advanced Server";
-				else sub = "Server";
+				case PRODUCT_CLUSTER_SERVER:
+					sub = "HPC Edition";
+					break;
+				case PRODUCT_HOME_SERVER:
+					sub = "Storage Server Essentials Edition";
+					break;
+				case PRODUCT_STORAGE_EXPRESS_SERVER:
+					sub = "Storage Server Express Edition";
+					break;
+				case PRODUCT_STORAGE_STANDARD_SERVER:
+					sub = "Storage Server Standard Edition";
+					break;
+				case PRODUCT_STORAGE_WORKGROUP_SERVER:
+					sub = "Storage Server Workgroup Edition";
+					break;
+				case PRODUCT_STORAGE_ENTERPRISE_SERVER:
+					sub = "Storage Server Enterprise Edition";
+					break;
+				case PRODUCT_SERVER_FOR_SMALLBUSINESS:
+					sub = "Essential Server Solutions Edition";
+					break;
+				case PRODUCT_SMALLBUSINESS_SERVER_PREMIUM:
+					sub = "Small Business Server Premium Edition";
+					break;
+				case PRODUCT_HOME_PREMIUM_N:
+					sub = "Home Premium N Edition";
+					break;
+				case PRODUCT_ENTERPRISE_N:
+					sub = "Enterprise N Edition";
+					break;
+				case PRODUCT_ULTIMATE_N:
+					sub = "Ultimate N Edition";
+					break;
+				case PRODUCT_WEB_SERVER_CORE:
+					sub = "Web Server Edition (core installation)";
+					break;
+				case PRODUCT_MEDIUMBUSINESS_SERVER_MANAGEMENT:
+					sub = "Essential Business Server Management Server Edition";
+					break;
+				case PRODUCT_MEDIUMBUSINESS_SERVER_SECURITY:
+					sub = "Essential Business Server Management Security Edition";
+					break;
+				case PRODUCT_MEDIUMBUSINESS_SERVER_MESSAGING:
+					sub = "Essential Business Server Management Messaging Edition";
+					break;
+				case PRODUCT_SERVER_FOUNDATION:
+					sub = "Foundation Edition";
+					break;
+				case PRODUCT_HOME_PREMIUM_SERVER:
+					sub = "Home Server 2011 Edition";
+					break;
+				case PRODUCT_SERVER_FOR_SMALLBUSINESS_V:
+					sub = "Essential Server Solutions Edition (without Hyper-V)";
+					break;
+				case PRODUCT_STANDARD_SERVER_V:
+					sub = "Standard Edition (without Hyper-V)";
+					break;
+				case PRODUCT_DATACENTER_SERVER_V:
+					sub = "Datacenter Edition (without Hyper-V)";
+					break;
+				case PRODUCT_ENTERPRISE_SERVER_V:
+					sub = "Enterprise Edition (without Hyper-V)";
+					break;
+				case PRODUCT_DATACENTER_SERVER_CORE_V:
+					sub = "Datacenter Edition (core installation, without Hyper-V)";
+					break;
+				case PRODUCT_STANDARD_SERVER_CORE_V:
+					sub = "Standard Edition (core installation, without Hyper-V)";
+					break;
+				case PRODUCT_ENTERPRISE_SERVER_CORE_V:
+					sub = "Enterprise Edition (core installation, without Hyper-V)";
+					break;
+				case PRODUCT_HYPERV:
+					sub = "Hyper-V Server";
+					break;
+				case PRODUCT_STORAGE_EXPRESS_SERVER_CORE:
+					sub = "Storage Server Express Edition (core installation)";
+					break;
+				case PRODUCT_STORAGE_STANDARD_SERVER_CORE:
+					sub = "Storage Server Standard Edition (core installation)";
+					break;
+				case PRODUCT_STORAGE_WORKGROUP_SERVER_CORE:
+					sub = "Storage Server Workgroup Edition (core installation)";
+					break;
+				case PRODUCT_STORAGE_ENTERPRISE_SERVER_CORE:
+					sub = "Storage Server Enterprise Edition (core installation)";
+					break;
+				case PRODUCT_STARTER_N:
+					sub = "Starter N Edition";
+					break;
+				case PRODUCT_PROFESSIONAL:
+					sub = "Professional Edition";
+					break;
+				case PRODUCT_PROFESSIONAL_N:
+					sub = "Professional N Edition";
+					break;
+				case PRODUCT_SB_SOLUTION_SERVER:
+					sub = "Small Business Server 2011 Essentials Edition";
+					break;
+				case PRODUCT_SERVER_FOR_SB_SOLUTIONS:
+					sub = "Server For SB Solutions Edition";
+					break;
+				case PRODUCT_STANDARD_SERVER_SOLUTIONS:
+					sub = "Solutions Premium Edition";
+					break;
+				case PRODUCT_STANDARD_SERVER_SOLUTIONS_CORE:
+					sub = "Solutions Premium Edition (core installation)";
+					break;
+				case PRODUCT_SB_SOLUTION_SERVER_EM:
+					sub = "Server For SB Solutions EM Edition";
+					break;
+				case PRODUCT_SERVER_FOR_SB_SOLUTIONS_EM:
+					sub = "Server For SB Solutions EM Edition";
+					break;
+				case PRODUCT_SOLUTION_EMBEDDEDSERVER:
+					sub = "MultiPoint Server Edition";
+					break;
+				case PRODUCT_ESSENTIALBUSINESS_SERVER_MGMT:
+					sub = "Essential Server Solution Management Edition";
+					break;
+				case PRODUCT_ESSENTIALBUSINESS_SERVER_ADDL:
+					sub = "Essential Server Solution Additional Edition";
+					break;
+				case PRODUCT_ESSENTIALBUSINESS_SERVER_MGMTSVC:
+					sub = "Essential Server Solution Management SVC Edition";
+					break;
+				case PRODUCT_ESSENTIALBUSINESS_SERVER_ADDLSVC:
+					sub = "Essential Server Solution Additional SVC Edition";
+					break;
+				case PRODUCT_SMALLBUSINESS_SERVER_PREMIUM_CORE:
+					sub = "Small Business Server Premium Edition (core installation)";
+					break;
+				case PRODUCT_CLUSTER_SERVER_V:
+					sub = "Hyper Core V Edition";
+					break;
+				case PRODUCT_STARTER_E:
+					sub = "Hyper Core V Edition";
+					break;
+				case PRODUCT_ENTERPRISE_EVALUATION:
+					sub = "Enterprise Edition (evaluation installation)";
+					break;
+				case PRODUCT_MULTIPOINT_STANDARD_SERVER:
+					sub = "MultiPoint Server Standard Edition (full installation)";
+					break;
+				case PRODUCT_MULTIPOINT_PREMIUM_SERVER:
+					sub = "MultiPoint Server Premium Edition (full installation)";
+					break;
+				case PRODUCT_STANDARD_EVALUATION_SERVER:
+					sub = "Standard Edition (evaluation installation)";
+					break;
+				case PRODUCT_DATACENTER_EVALUATION_SERVER:
+					sub = "Datacenter Edition (evaluation installation)";
+					break;
+				case PRODUCT_ENTERPRISE_N_EVALUATION:
+					sub = "Enterprise N Edition (evaluation installation)";
+					break;
+				case PRODUCT_STORAGE_WORKGROUP_EVALUATION_SERVER:
+					sub = "Storage Server Workgroup Edition (evaluation installation)";
+					break;
+				case PRODUCT_STORAGE_STANDARD_EVALUATION_SERVER:
+					sub = "Storage Server Standard Edition (evaluation installation)";
+					break;
+				case PRODUCT_CORE_N:
+					sub = "Windows 8 N Edition";
+					break;
+				case PRODUCT_CORE_COUNTRYSPECIFIC:
+					sub = "Windows 8 China Edition";
+					break;
+				case PRODUCT_CORE_SINGLELANGUAGE:
+					sub = "Windows 8 Single Language Edition";
+					break;
+				case PRODUCT_CORE:
+					sub = "Windows 8 Edition";
+					break;
+				case PRODUCT_PROFESSIONAL_WMC:
+					sub = "Professional with Media Center Edition";
+					break;
 			}
 		}
 	} else {
@@ -736,7 +862,7 @@ PHPAPI void php_print_info(int flag)
 		}
 		php_info_print_box_end();
 		php_info_print_table_start();
-		php_info_print_table_row(2, "System", php_uname->val);
+		php_info_print_table_row(2, "System", ZSTR_VAL(php_uname));
 		php_info_print_table_row(2, "Build Date", __DATE__ " " __TIME__);
 #ifdef COMPILER
 		php_info_print_table_row(2, "Compiler", COMPILER);
@@ -900,16 +1026,16 @@ PHPAPI void php_print_info(int flag)
 
 		php_info_print_table_start();
 		php_info_print_table_header(2, "Variable", "Value");
-		if ((data = zend_hash_str_find(&EG(symbol_table).ht, "PHP_SELF", sizeof("PHP_SELF")-1)) != NULL && Z_TYPE_P(data) == IS_STRING) {
+		if ((data = zend_hash_str_find(&EG(symbol_table), "PHP_SELF", sizeof("PHP_SELF")-1)) != NULL && Z_TYPE_P(data) == IS_STRING) {
 			php_info_print_table_row(2, "PHP_SELF", Z_STRVAL_P(data));
 		}
-		if ((data = zend_hash_str_find(&EG(symbol_table).ht, "PHP_AUTH_TYPE", sizeof("PHP_AUTH_TYPE")-1)) != NULL && Z_TYPE_P(data) == IS_STRING) {
+		if ((data = zend_hash_str_find(&EG(symbol_table), "PHP_AUTH_TYPE", sizeof("PHP_AUTH_TYPE")-1)) != NULL && Z_TYPE_P(data) == IS_STRING) {
 			php_info_print_table_row(2, "PHP_AUTH_TYPE", Z_STRVAL_P(data));
 		}
-		if ((data = zend_hash_str_find(&EG(symbol_table).ht, "PHP_AUTH_USER", sizeof("PHP_AUTH_USER")-1)) != NULL && Z_TYPE_P(data) == IS_STRING) {
+		if ((data = zend_hash_str_find(&EG(symbol_table), "PHP_AUTH_USER", sizeof("PHP_AUTH_USER")-1)) != NULL && Z_TYPE_P(data) == IS_STRING) {
 			php_info_print_table_row(2, "PHP_AUTH_USER", Z_STRVAL_P(data));
 		}
-		if ((data = zend_hash_str_find(&EG(symbol_table).ht, "PHP_AUTH_PW", sizeof("PHP_AUTH_PW")-1)) != NULL && Z_TYPE_P(data) == IS_STRING) {
+		if ((data = zend_hash_str_find(&EG(symbol_table), "PHP_AUTH_PW", sizeof("PHP_AUTH_PW")-1)) != NULL && Z_TYPE_P(data) == IS_STRING) {
 			php_info_print_table_row(2, "PHP_AUTH_PW", Z_STRVAL_P(data));
 		}
 		php_print_gpcse_array(ZEND_STRL("_REQUEST"));

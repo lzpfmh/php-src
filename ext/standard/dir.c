@@ -85,14 +85,19 @@ static zend_class_entry *dir_class_entry_ptr;
 				php_error_docref(NULL, E_WARNING, "Unable to find my handle property"); \
 				RETURN_FALSE; \
 			} \
-			ZEND_FETCH_RESOURCE(dirp, php_stream *, tmp, -1, "Directory", php_file_le_stream()); \
+			if ((dirp = (php_stream *)zend_fetch_resource_ex(tmp, "Directory", php_file_le_stream())) == NULL) { \
+				RETURN_FALSE; \
+			} \
 		} else { \
-			ZEND_FETCH_RESOURCE(dirp, php_stream *, 0, (int)DIRG(default_dir)->handle, "Directory", php_file_le_stream()); \
+			if (!DIRG(default_dir) || \
+				(dirp = (php_stream *)zend_fetch_resource(DIRG(default_dir), "Directory", php_file_le_stream())) == NULL) { \
+				RETURN_FALSE; \
+			} \
 		} \
 	} else { \
-		dirp = (php_stream *) zend_fetch_resource(id, -1, "Directory", NULL, 1, php_file_le_stream()); \
-		if (!dirp) \
+		if ((dirp = (php_stream *)zend_fetch_resource(Z_RES_P(id), "Directory", php_file_le_stream())) == NULL) { \
 			RETURN_FALSE; \
+		} \
 	}
 
 /* {{{ arginfo */
@@ -219,7 +224,7 @@ static void _php_do_opendir(INTERNAL_FUNCTION_PARAMETERS, int createobject)
 	php_stream_context *context = NULL;
 	php_stream *dirp;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|r", &dirname, &dir_len, &zcontext) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "p|r", &dirname, &dir_len, &zcontext) == FAILURE) {
 		RETURN_NULL();
 	}
 
@@ -295,7 +300,7 @@ PHP_FUNCTION(chroot)
 	int ret;
 	size_t str_len;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &str, &str_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "p", &str, &str_len) == FAILURE) {
 		RETURN_FALSE;
 	}
 

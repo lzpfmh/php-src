@@ -85,11 +85,12 @@ typedef struct _spl_SplObjectStorage { /* {{{ */
 	HashPosition      pos;
 	zend_long         flags;
 	zend_function    *fptr_get_hash;
-	HashTable        *debug_info;
+	zval             *gcdata;
+	size_t            gcdata_num;
 	zend_object       std;
 } spl_SplObjectStorage; /* }}} */
 
-/* {{{ storage is an assoc aray of [zend_object_value]=>[zval *obj, zval *inf] */
+/* {{{ storage is an assoc aray of [zend_object*]=>[zval *obj, zval *inf] */
 typedef struct _spl_SplObjectStorageElement {
 	zval obj;
 	zval inf;
@@ -110,10 +111,10 @@ void spl_SplObjectStorage_free_storage(zend_object *object) /* {{{ */
 
 	zend_hash_destroy(&intern->storage);
 
-	if (intern->debug_info != NULL) {
-		zend_hash_destroy(intern->debug_info);
-		efree(intern->debug_info);
+	if (intern->gcdata != NULL) {
+		efree(intern->gcdata);
 	}
+
 } /* }}} */
 
 static zend_string *spl_object_storage_get_hash(spl_SplObjectStorage *intern, zval *this, zval *obj) {
@@ -134,52 +135,14 @@ static zend_string *spl_object_storage_get_hash(spl_SplObjectStorage *intern, zv
 		}
 	} else {
 		zend_string *hash = zend_string_alloc(sizeof(zend_object*), 0);
-		memcpy(hash->val, (void*)&Z_OBJ_P(obj), sizeof(zend_object*));
-		hash->val[hash->len] = '\0';
+		memcpy(ZSTR_VAL(hash), (void*)&Z_OBJ_P(obj), sizeof(zend_object*));
+		ZSTR_VAL(hash)[ZSTR_LEN(hash)] = '\0';
 		return hash;
-		/* !!! FIXME
-		int hash_len = sizeof(zend_object_value);
-
-#if HAVE_PACKED_OBJECT_VALUE
-
-		if (hash_len_ptr) {
-			*hash_len_ptr = hash_len;
-		}
-
-		return (char*)&Z_OBJVAL_P(obj);
-#else
-		char *hash = emalloc(hash_len + 1);
-
-		zend_object_value zvalue;
-		memset(&zvalue, 0, sizeof(zend_object_value));
-		zvalue.handle = Z_OBJ_HANDLE_P(obj);
-		zvalue.handlers = Z_OBJ_HT_P(obj);
-
-		memcpy(hash, (char *)&zvalue, hash_len);
-		hash[hash_len] = 0;
-
-		if (hash_len_ptr) {
-			*hash_len_ptr = hash_len;
-		}
-
-		return hash;
-#endif
-*/
-		return NULL;
 	}
 }
 
 static void spl_object_storage_free_hash(spl_SplObjectStorage *intern, zend_string *hash) {
 	zend_string_release(hash);
-/*
-	if (intern->fptr_get_hash) {
-	} else {
-#if HAVE_PACKED_OBJECT_VALUE
-#else
-		efree(hash);
-#endif
-	}
-*/
 }
 
 static void spl_object_storage_dtor(zval *element) /* {{{ */
@@ -256,9 +219,9 @@ static zend_object *spl_object_storage_new_ex(zend_class_entry *class_type, zval
 	spl_SplObjectStorage *intern;
 	zend_class_entry *parent = class_type;
 
-	intern = emalloc(sizeof(spl_SplObjectStorage) + sizeof(zval) * (parent->default_properties_count - 1));
+	intern = emalloc(sizeof(spl_SplObjectStorage) + zend_object_properties_size(parent));
 	memset(intern, 0, sizeof(spl_SplObjectStorage) - sizeof(zval));
-	intern->pos = INVALID_IDX;
+	intern->pos = HT_INVALID_IDX;
 
 	zend_object_std_init(&intern->std, class_type);
 	object_properties_init(&intern->std, class_type);
@@ -313,78 +276,59 @@ static HashTable* spl_object_storage_debug_info(zval *obj, int *is_temp) /* {{{ 
 	zval tmp, storage;
 	zend_string *md5str;
 	zend_string *zname;
+	HashTable *debug_info;
 
-	*is_temp = 0;
+	*is_temp = 1;
 
 	props = Z_OBJPROP_P(obj);
-	zend_hash_str_del(props, "\x00gcdata", sizeof("\x00gcdata") - 1);
 
-	if (intern->debug_info == NULL) {
-		ALLOC_HASHTABLE(intern->debug_info);
-		ZEND_INIT_SYMTABLE_EX(intern->debug_info, zend_hash_num_elements(props) + 1, 0);
-	}
+	ALLOC_HASHTABLE(debug_info);
+	ZEND_INIT_SYMTABLE_EX(debug_info, zend_hash_num_elements(props) + 1, 0);
+	zend_hash_copy(debug_info, props, (copy_ctor_func_t)zval_add_ref);
 
-	if (intern->debug_info->u.v.nApplyCount == 0) {
-		zend_hash_copy(intern->debug_info, props, (copy_ctor_func_t)zval_add_ref);
+	array_init(&storage);
 
-		array_init(&storage);
+	ZEND_HASH_FOREACH_PTR(&intern->storage, element) {
+		md5str = php_spl_object_hash(&element->obj);
+		array_init(&tmp);
+		/* Incrementing the refcount of obj and inf would confuse the garbage collector.
+		 * Prefer to null the destructor */
+		Z_ARRVAL_P(&tmp)->pDestructor = NULL;
+		add_assoc_zval_ex(&tmp, "obj", sizeof("obj") - 1, &element->obj);
+		add_assoc_zval_ex(&tmp, "inf", sizeof("inf") - 1, &element->inf);
+		zend_hash_update(Z_ARRVAL(storage), md5str, &tmp);
+		zend_string_release(md5str);
+	} ZEND_HASH_FOREACH_END();
 
-		ZEND_HASH_FOREACH_PTR(&intern->storage, element) {
-			md5str = php_spl_object_hash(&element->obj);
-			array_init(&tmp);
-			/* Incrementing the refcount of obj and inf would confuse the garbage collector.
-			 * Prefer to null the destructor */
-			Z_ARRVAL_P(&tmp)->pDestructor = NULL;
-			add_assoc_zval_ex(&tmp, "obj", sizeof("obj") - 1, &element->obj);
-			add_assoc_zval_ex(&tmp, "inf", sizeof("inf") - 1, &element->inf);
-			zend_hash_update(Z_ARRVAL(storage), md5str, &tmp);
-			zend_string_release(md5str);
-		} ZEND_HASH_FOREACH_END();
+	zname = spl_gen_private_prop_name(spl_ce_SplObjectStorage, "storage", sizeof("storage")-1);
+	zend_symtable_update(debug_info, zname, &storage);
+	zend_string_release(zname);
 
-		zname = spl_gen_private_prop_name(spl_ce_SplObjectStorage, "storage", sizeof("storage")-1);
-		zend_symtable_update(intern->debug_info, zname, &storage);
-		zend_string_release(zname);
-	}
-
-	return intern->debug_info;
+	return debug_info;
 }
 /* }}} */
 
-/* overriden for garbage collection
- * This is very hacky */
+/* overriden for garbage collection */
 static HashTable *spl_object_storage_get_gc(zval *obj, zval **table, int *n) /* {{{ */
 {
+	int i = 0;
 	spl_SplObjectStorage *intern = Z_SPLOBJSTORAGE_P(obj);
 	spl_SplObjectStorageElement *element;
-	HashTable *props;
-	zval *gcdata_arr, tmp;
 
-	props = std_object_handlers.get_properties(obj);
-
-	*table = NULL;
-	*n = 0;
-
-	/* clean \x00gcdata, as it may be out of date */
-	if ((gcdata_arr = zend_hash_str_find(props, "\x00gcdata", sizeof("\x00gcdata") - 1)) != NULL) {
-		zend_hash_clean(Z_ARRVAL_P(gcdata_arr));
-	}
-
-	if (gcdata_arr == NULL) {
-		array_init(&tmp);
-		/* don't decrease refcount of members when destroying */
-		Z_ARRVAL_P(&tmp)->pDestructor = NULL;
-
-		/* name starts with \x00 to make tampering in user-land more difficult */
-		zend_hash_str_add(props, "\x00gcdata", sizeof("\x00gcdata") - 1, &tmp);
-		gcdata_arr = &tmp;
+	if (intern->storage.nNumOfElements * 2 > intern->gcdata_num) {
+		intern->gcdata_num = intern->storage.nNumOfElements * 2;
+		intern->gcdata = (zval*)erealloc(intern->gcdata, sizeof(zval) * intern->gcdata_num);
 	}
 
 	ZEND_HASH_FOREACH_PTR(&intern->storage, element) {
-		add_next_index_zval(gcdata_arr, &element->obj);
-		add_next_index_zval(gcdata_arr, &element->inf);
+		ZVAL_COPY_VALUE(&intern->gcdata[i++], &element->obj);
+		ZVAL_COPY_VALUE(&intern->gcdata[i++], &element->inf);
 	} ZEND_HASH_FOREACH_END();
 
-	return props;
+	*table = intern->gcdata;
+	*n = i;
+
+	return std_object_handlers.get_properties(obj);
 }
 /* }}} */
 
@@ -435,7 +379,7 @@ int spl_object_storage_contains(spl_SplObjectStorage *intern, zval *this, zval *
 	return found;
 } /* }}} */
 
-/* {{{ proto void SplObjectStorage::attach($obj, $inf = NULL)
+/* {{{ proto void SplObjectStorage::attach(object obj, mixed inf = NULL)
  Attaches an object to the storage if not yet contained */
 SPL_METHOD(SplObjectStorage, attach)
 {
@@ -449,7 +393,7 @@ SPL_METHOD(SplObjectStorage, attach)
 	spl_object_storage_attach(intern, getThis(), obj, inf);
 } /* }}} */
 
-/* {{{ proto void SplObjectStorage::detach($obj)
+/* {{{ proto void SplObjectStorage::detach(object obj)
  Detaches an object from the storage */
 SPL_METHOD(SplObjectStorage, detach)
 {
@@ -465,7 +409,7 @@ SPL_METHOD(SplObjectStorage, detach)
 	intern->index = 0;
 } /* }}} */
 
-/* {{{ proto string SplObjectStorage::getHash($object)
+/* {{{ proto string SplObjectStorage::getHash(object obj)
  Returns the hash of an object */
 SPL_METHOD(SplObjectStorage, getHash)
 {
@@ -479,7 +423,7 @@ SPL_METHOD(SplObjectStorage, getHash)
 
 } /* }}} */
 
-/* {{{ proto mixed SplObjectStorage::offsetGet($object)
+/* {{{ proto mixed SplObjectStorage::offsetGet(object obj)
  Returns associated information for a stored object */
 SPL_METHOD(SplObjectStorage, offsetGet)
 {
@@ -503,7 +447,10 @@ SPL_METHOD(SplObjectStorage, offsetGet)
 	if (!element) {
 		zend_throw_exception_ex(spl_ce_UnexpectedValueException, 0, "Object not found");
 	} else {
-		RETURN_ZVAL(&element->inf, 1, 0);
+		zval *value = &element->inf;
+
+		ZVAL_DEREF(value);
+		ZVAL_COPY(return_value, value);
 	}
 } /* }}} */
 
@@ -582,7 +529,7 @@ SPL_METHOD(SplObjectStorage, removeAllExcept)
 }
 /* }}} */
 
-/* {{{ proto bool SplObjectStorage::contains($obj)
+/* {{{ proto bool SplObjectStorage::contains(object obj)
  Determine whethe an object is contained in the storage */
 SPL_METHOD(SplObjectStorage, contains)
 {
@@ -675,7 +622,7 @@ SPL_METHOD(SplObjectStorage, current)
 	if ((element = zend_hash_get_current_data_ptr_ex(&intern->storage, &intern->pos)) == NULL) {
 		return;
 	}
-	RETVAL_ZVAL(&element->obj, 1, 0);
+	ZVAL_COPY(return_value, &element->obj);
 } /* }}} */
 
 /* {{{ proto mixed SplObjectStorage::getInfo()
@@ -692,7 +639,7 @@ SPL_METHOD(SplObjectStorage, getInfo)
 	if ((element = zend_hash_get_current_data_ptr_ex(&intern->storage, &intern->pos)) == NULL) {
 		return;
 	}
-	RETVAL_ZVAL(&element->inf, 1, 0);
+	ZVAL_COPY(return_value, &element->inf);
 } /* }}} */
 
 /* {{{ proto mixed SplObjectStorage::setInfo(mixed $inf)
@@ -711,7 +658,7 @@ SPL_METHOD(SplObjectStorage, setInfo)
 		return;
 	}
 	zval_ptr_dtor(&element->inf);
-	ZVAL_ZVAL(&element->inf, inf, 1, 0);
+	ZVAL_COPY(&element->inf, inf);
 } /* }}} */
 
 /* {{{ proto void SplObjectStorage::next()
@@ -769,8 +716,8 @@ SPL_METHOD(SplObjectStorage, serialize)
 
 	/* members */
 	smart_str_appendl(&buf, "m:", 2);
-	ZVAL_NEW_ARR(&members);
-	zend_array_dup(Z_ARRVAL(members), zend_std_get_properties(getThis()));
+
+	ZVAL_ARR(&members, zend_array_dup(zend_std_get_properties(getThis())));
 	php_var_serialize(&buf, &members, &var_hash); /* finishes the string */
 	zval_ptr_dtor(&members);
 
@@ -778,7 +725,7 @@ SPL_METHOD(SplObjectStorage, serialize)
 	PHP_VAR_SERIALIZE_DESTROY(var_hash);
 
 	if (buf.s) {
-		RETURN_STR(buf.s);
+		RETURN_NEW_STR(buf.s);
 	} else {
 		RETURN_NULL();
 	}
@@ -795,7 +742,8 @@ SPL_METHOD(SplObjectStorage, unserialize)
 	size_t buf_len;
 	const unsigned char *p, *s;
 	php_unserialize_data_t var_hash;
-	zval entry, pmembers, pcount, inf;
+	zval entry, inf;
+	zval *pcount, *pmembers;
 	spl_SplObjectStorageElement *element;
 	zend_long count;
 
@@ -816,16 +764,13 @@ SPL_METHOD(SplObjectStorage, unserialize)
 	}
 	++p;
 
-	if (!php_var_unserialize(&pcount, &p, s + buf_len, &var_hash)) {
-		goto outexcept;
-	}
-	if (Z_TYPE(pcount) != IS_LONG) {
-		zval_ptr_dtor(&pcount);
+	pcount = var_tmp_var(&var_hash);
+	if (!php_var_unserialize(pcount, &p, s + buf_len, &var_hash) || Z_TYPE_P(pcount) != IS_LONG) {
 		goto outexcept;
 	}
 
 	--p; /* for ';' */
-	count = Z_LVAL(pcount);
+	count = Z_LVAL_P(pcount);
 
 	while (count-- > 0) {
 		spl_SplObjectStorageElement *pelement;
@@ -838,7 +783,7 @@ SPL_METHOD(SplObjectStorage, unserialize)
 		if(*p != 'O' && *p != 'C' && *p != 'r') {
 			goto outexcept;
 		}
-		/* sore reference to allow cross-references between different elements */
+		/* store reference to allow cross-references between different elements */
 		if (!php_var_unserialize(&entry, &p, s + buf_len, &var_hash)) {
 			goto outexcept;
 		}
@@ -852,6 +797,8 @@ SPL_METHOD(SplObjectStorage, unserialize)
 				zval_ptr_dtor(&entry);
 				goto outexcept;
 			}
+		} else {
+			ZVAL_UNDEF(&inf);
 		}
 
 		hash = spl_object_storage_get_hash(intern, getThis(), &entry);
@@ -870,7 +817,7 @@ SPL_METHOD(SplObjectStorage, unserialize)
 				var_push_dtor(&var_hash, &pelement->obj);
 			}
 		}
-		element = spl_object_storage_attach(intern, getThis(), &entry, &inf);
+		element = spl_object_storage_attach(intern, getThis(), &entry, Z_ISUNDEF(inf)?NULL:&inf);
 		var_replace(&var_hash, &entry, &element->obj);
 		var_replace(&var_hash, &inf, &element->inf);
 		zval_ptr_dtor(&entry);
@@ -888,9 +835,8 @@ SPL_METHOD(SplObjectStorage, unserialize)
 	}
 	++p;
 
-	ZVAL_UNDEF(&pmembers);
-	if (!php_var_unserialize(&pmembers, &p, s + buf_len, &var_hash) || Z_TYPE(pmembers) != IS_ARRAY) {
-		zval_ptr_dtor(&pmembers);
+	pmembers = var_tmp_var(&var_hash);
+	if (!php_var_unserialize(pmembers, &p, s + buf_len, &var_hash) || Z_TYPE_P(pmembers) != IS_ARRAY) {
 		goto outexcept;
 	}
 
@@ -898,8 +844,7 @@ SPL_METHOD(SplObjectStorage, unserialize)
 	if (!intern->std.properties) {
 		rebuild_object_properties(&intern->std);
 	}
-	zend_hash_copy(intern->std.properties, Z_ARRVAL(pmembers), (copy_ctor_func_t) zval_add_ref);
-	zval_ptr_dtor(&pmembers);
+	zend_hash_copy(intern->std.properties, Z_ARRVAL_P(pmembers), (copy_ctor_func_t) zval_add_ref);
 
 	PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
 	return;
@@ -984,18 +929,13 @@ SPL_METHOD(MultipleIterator, __construct)
 {
 	spl_SplObjectStorage   *intern;
 	zend_long               flags = MIT_NEED_ALL|MIT_KEYS_NUMERIC;
-	zend_error_handling error_handling;
 
-	zend_replace_error_handling(EH_THROW, spl_ce_InvalidArgumentException, &error_handling);
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &flags) == FAILURE) {
-		zend_restore_error_handling(&error_handling);
+	if (zend_parse_parameters_throw(ZEND_NUM_ARGS(), "|l", &flags) == FAILURE) {
 		return;
 	}
 
 	intern = Z_SPLOBJSTORAGE_P(getThis());
 	intern->flags = flags;
-	zend_restore_error_handling(&error_handling);
 }
 /* }}} */
 
@@ -1040,7 +980,6 @@ SPL_METHOD(MultipleIterator, attachIterator)
 
 	if (info != NULL) {
 		spl_SplObjectStorageElement *element;
-		zval                         compare_result;
 
 		if (Z_TYPE_P(info) != IS_LONG && Z_TYPE_P(info) != IS_STRING) {
 			zend_throw_exception(spl_ce_InvalidArgumentException, "Info must be NULL, integer or string", 0);
@@ -1049,8 +988,7 @@ SPL_METHOD(MultipleIterator, attachIterator)
 
 		zend_hash_internal_pointer_reset_ex(&intern->storage, &intern->pos);
 		while ((element = zend_hash_get_current_data_ptr_ex(&intern->storage, &intern->pos)) != NULL) {
-			is_identical_function(&compare_result, info, &element->inf);
-			if (Z_TYPE(compare_result) == IS_TRUE) {
+			if (fast_is_identical_function(info, &element->inf)) {
 				zend_throw_exception(spl_ce_InvalidArgumentException, "Key duplication error", 0);
 				return;
 			}
@@ -1204,7 +1142,7 @@ static void spl_multiple_iterator_get_all(spl_SplObjectStorage *intern, int get_
 					add_index_zval(return_value, Z_LVAL(element->inf), &retval);
 					break;
 				case IS_STRING:
-					zend_hash_update(Z_ARRVAL_P(return_value), Z_STR(element->inf), &retval);
+					zend_symtable_update(Z_ARRVAL_P(return_value), Z_STR(element->inf), &retval);
 					break;
 				default:
 					zval_ptr_dtor(&retval);

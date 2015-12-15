@@ -316,7 +316,6 @@ static void php_parserr(PDNS_RECORD pRec, int type_to_fetch, int store, int raw,
 			}
 			break;
 
-#if _MSC_VER >= 1500
 		case DNS_TYPE_NAPTR:
 			{
 				DNS_NAPTR_DATA * data_naptr = &pRec->Data.Naptr;
@@ -330,7 +329,6 @@ static void php_parserr(PDNS_RECORD pRec, int type_to_fetch, int store, int raw,
 				add_assoc_string(subarray, "replacement", data_naptr->pReplacement);
 			}
 			break;
-#endif
 
 		default:
 			/* unknown type */
@@ -463,7 +461,6 @@ PHP_FUNCTION(dns_get_record)
 			}
 
 			for (pRec = pResult; pRec; pRec = pRec->pNext) {
-				DNS_SRV_DATA *srv = &pRec->Data.Srv;
 				zval retval;
 
 				if (pRec->Flags.S.Section == DnsSectionAnswer) {

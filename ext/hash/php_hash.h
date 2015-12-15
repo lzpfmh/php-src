@@ -24,7 +24,8 @@
 #include "php.h"
 
 #define PHP_HASH_EXTNAME	"hash"
-#define PHP_HASH_EXTVER		"1.0"
+#define PHP_HASH_VERSION	"1.0"
+#define PHP_MHASH_VERSION	"1.0"
 #define PHP_HASH_RESNAME	"Hash Context"
 
 #define PHP_HASH_HMAC		0x0001
@@ -67,6 +68,10 @@ extern const php_hash_ops php_hash_sha224_ops;
 extern const php_hash_ops php_hash_sha256_ops;
 extern const php_hash_ops php_hash_sha384_ops;
 extern const php_hash_ops php_hash_sha512_ops;
+extern const php_hash_ops php_hash_sha3_224_ops;
+extern const php_hash_ops php_hash_sha3_256_ops;
+extern const php_hash_ops php_hash_sha3_384_ops;
+extern const php_hash_ops php_hash_sha3_512_ops;
 extern const php_hash_ops php_hash_ripemd128_ops;
 extern const php_hash_ops php_hash_ripemd160_ops;
 extern const php_hash_ops php_hash_ripemd256_ops;

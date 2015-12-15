@@ -22,7 +22,7 @@
 #ifndef ZEND_H
 #define ZEND_H
 
-#define ZEND_VERSION "3.0.0-dev"
+#define ZEND_VERSION "3.1.0-dev"
 
 #define ZEND_ENGINE_3
 
@@ -31,9 +31,9 @@
 #include "zend_types.h"
 #include "zend_errors.h"
 #include "zend_alloc.h"
-#include "zend_hash.h"
 #include "zend_llist.h"
 #include "zend_string.h"
+#include "zend_hash.h"
 #include "zend_ast.h"
 #include "zend_gc.h"
 #include "zend_variables.h"
@@ -45,8 +45,11 @@
 #endif
 
 #ifndef ZEND_SIGNALS
-# define HANDLE_BLOCK_INTERRUPTIONS()		if (zend_block_interruptions) { zend_block_interruptions(); }
-# define HANDLE_UNBLOCK_INTERRUPTIONS()		if (zend_unblock_interruptions) { zend_unblock_interruptions(); }
+/* block/unblock interruptions callbacks might be used by SAPI, and were used
+ * by mod_php for Apache 1, but now they are not usefull anymore.
+ */
+# define HANDLE_BLOCK_INTERRUPTIONS()		/*if (zend_block_interruptions) { zend_block_interruptions(); }*/
+# define HANDLE_UNBLOCK_INTERRUPTIONS()		/*if (zend_unblock_interruptions) { zend_unblock_interruptions(); }*/
 #else
 # define HANDLE_BLOCK_INTERRUPTIONS()		ZEND_SIGNAL_BLOCK_INTERRUPUTIONS()
 # define HANDLE_UNBLOCK_INTERRUPTIONS()		ZEND_SIGNAL_UNBLOCK_INTERRUPTIONS()
@@ -62,25 +65,25 @@
 
 #ifdef ZEND_ENABLE_STATIC_TSRMLS_CACHE
 #define ZEND_TSRMG TSRMG_STATIC
-#define ZEND_TSRMLS_CACHE_EXTERN TSRMLS_CACHE_EXTERN
-#define ZEND_TSRMLS_CACHE_DEFINE TSRMLS_CACHE_DEFINE
-#define ZEND_TSRMLS_CACHE_UPDATE TSRMLS_CACHE_UPDATE
+#define ZEND_TSRMLS_CACHE_EXTERN() TSRMLS_CACHE_EXTERN()
+#define ZEND_TSRMLS_CACHE_DEFINE() TSRMLS_CACHE_DEFINE()
+#define ZEND_TSRMLS_CACHE_UPDATE() TSRMLS_CACHE_UPDATE()
 #define ZEND_TSRMLS_CACHE TSRMLS_CACHE
 #else
 #define ZEND_TSRMG TSRMG
-#define ZEND_TSRMLS_CACHE_EXTERN
-#define ZEND_TSRMLS_CACHE_DEFINE
-#define ZEND_TSRMLS_CACHE_UPDATE
+#define ZEND_TSRMLS_CACHE_EXTERN()
+#define ZEND_TSRMLS_CACHE_DEFINE()
+#define ZEND_TSRMLS_CACHE_UPDATE()
 #define ZEND_TSRMLS_CACHE
 #endif
 
-ZEND_TSRMLS_CACHE_EXTERN;
+ZEND_TSRMLS_CACHE_EXTERN();
 
 #ifdef HAVE_NORETURN
-# if defined(ZEND_WIN32)
-ZEND_API ZEND_NORETURN void zend_error_noreturn(int type, const char *format, ...);
+# ifdef ZEND_NORETURN_ALIAS
+ZEND_COLD void zend_error_noreturn(int type, const char *format, ...) ZEND_NORETURN;
 # else
-void zend_error_noreturn(int type, const char *format, ...) ZEND_NORETURN;
+ZEND_API ZEND_COLD ZEND_NORETURN void zend_error_noreturn(int type, const char *format, ...);
 # endif
 #else
 # define zend_error_noreturn zend_error
@@ -193,7 +196,7 @@ typedef struct _zend_utility_functions {
 	void (*error_function)(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args) ZEND_ATTRIBUTE_PTR_FORMAT(printf, 4, 0);
 	size_t (*printf_function)(const char *format, ...) ZEND_ATTRIBUTE_PTR_FORMAT(printf, 1, 2);
 	size_t (*write_function)(const char *str, size_t str_length);
-	FILE *(*fopen_function)(const char *filename, char **opened_path);
+	FILE *(*fopen_function)(const char *filename, zend_string **opened_path);
 	void (*message_handler)(zend_long message, const void *data);
 	void (*block_interruptions)(void);
 	void (*unblock_interruptions)(void);
@@ -204,7 +207,7 @@ typedef struct _zend_utility_functions {
 	size_t (*vspprintf_function)(char **pbuf, size_t max_len, const char *format, va_list ap);
 	zend_string *(*vstrpprintf_function)(size_t max_len, const char *format, va_list ap);
 	char *(*getenv_function)(char *name, size_t name_len);
-	char *(*resolve_path_function)(const char *filename, int filename_len);
+	zend_string *(*resolve_path_function)(const char *filename, int filename_len);
 } zend_utility_functions;
 
 typedef struct _zend_utility_values {
@@ -240,7 +243,7 @@ void zend_register_standard_ini_entries(void);
 void zend_post_startup(void);
 void zend_set_utility_values(zend_utility_values *utility_values);
 
-ZEND_API void _zend_bailout(char *filename, uint lineno);
+ZEND_API ZEND_COLD void _zend_bailout(char *filename, uint lineno);
 
 ZEND_API char *get_zend_version(void);
 ZEND_API int zend_make_printable_zval(zval *expr, zval *expr_copy);
@@ -249,7 +252,7 @@ ZEND_API size_t zend_print_zval_ex(zend_write_func_t write_func, zval *expr, int
 ZEND_API void zend_print_zval_r(zval *expr, int indent);
 ZEND_API void zend_print_flat_zval_r(zval *expr);
 ZEND_API void zend_print_zval_r_ex(zend_write_func_t write_func, zval *expr, int indent);
-ZEND_API void zend_output_debug_string(zend_bool trigger_break, const char *format, ...) ZEND_ATTRIBUTE_FORMAT(printf, 2, 3);
+ZEND_API ZEND_COLD void zend_output_debug_string(zend_bool trigger_break, const char *format, ...) ZEND_ATTRIBUTE_FORMAT(printf, 2, 3);
 
 ZEND_API void zend_activate(void);
 ZEND_API void zend_deactivate(void);
@@ -259,7 +262,6 @@ ZEND_API void zend_deactivate_modules(void);
 ZEND_API void zend_post_deactivate_modules(void);
 
 ZEND_API void free_estring(char **str_p);
-ZEND_API void free_string_zval(zval *zv);
 END_EXTERN_C()
 
 /* output support */
@@ -272,7 +274,7 @@ END_EXTERN_C()
 BEGIN_EXTERN_C()
 extern ZEND_API size_t (*zend_printf)(const char *format, ...) ZEND_ATTRIBUTE_PTR_FORMAT(printf, 1, 2);
 extern ZEND_API zend_write_func_t zend_write;
-extern ZEND_API FILE *(*zend_fopen)(const char *filename, char **opened_path);
+extern ZEND_API FILE *(*zend_fopen)(const char *filename, zend_string **opened_path);
 extern ZEND_API void (*zend_block_interruptions)(void);
 extern ZEND_API void (*zend_unblock_interruptions)(void);
 extern ZEND_API void (*zend_ticks_function)(int ticks);
@@ -282,11 +284,14 @@ extern ZEND_API int (*zend_stream_open_function)(const char *filename, zend_file
 extern size_t (*zend_vspprintf)(char **pbuf, size_t max_len, const char *format, va_list ap);
 extern zend_string *(*zend_vstrpprintf)(size_t max_len, const char *format, va_list ap);
 extern ZEND_API char *(*zend_getenv)(char *name, size_t name_len);
-extern ZEND_API char *(*zend_resolve_path)(const char *filename, int filename_len);
+extern ZEND_API zend_string *(*zend_resolve_path)(const char *filename, int filename_len);
 
-ZEND_API void zend_error(int type, const char *format, ...) ZEND_ATTRIBUTE_FORMAT(printf, 2, 3);
+ZEND_API ZEND_COLD void zend_error(int type, const char *format, ...) ZEND_ATTRIBUTE_FORMAT(printf, 2, 3);
+ZEND_API ZEND_COLD void zend_throw_error(zend_class_entry *exception_ce, const char *format, ...);
+ZEND_API ZEND_COLD void zend_type_error(const char *format, ...);
+ZEND_API ZEND_COLD void zend_internal_type_error(zend_bool throw_exception, const char *format, ...);
 
-void zenderror(const char *error);
+ZEND_COLD void zenderror(const char *error);
 
 /* The following #define is used for code duality in PHP for Engine 1 & 2 */
 #define ZEND_STANDARD_CLASS_DEF_PTR zend_standard_class_def

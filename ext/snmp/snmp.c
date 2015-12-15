@@ -338,7 +338,6 @@ ZEND_BEGIN_ARG_INFO(arginfo_snmp_void, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_snmp_setSecurity, 0, 0, 8)
-	ZEND_ARG_INFO(0, session)
 	ZEND_ARG_INFO(0, sec_level)
 	ZEND_ARG_INFO(0, auth_protocol)
 	ZEND_ARG_INFO(0, auth_passphrase)
@@ -346,7 +345,6 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_snmp_setSecurity, 0, 0, 8)
 	ZEND_ARG_INFO(0, priv_passphrase)
 	ZEND_ARG_INFO(0, contextName)
 	ZEND_ARG_INFO(0, contextEngineID)
-	ZEND_ARG_INFO(0, )
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_snmp_get, 0, 0, 1)
@@ -493,7 +491,7 @@ static zend_object *php_snmp_object_new(zend_class_entry *class_type) /* {{{ */
 	php_snmp_object *intern;
 
 	/* Allocate memory for it */
-	intern = ecalloc(1, sizeof(php_snmp_object) + sizeof(zval) *  (class_type->default_properties_count - 1));
+	intern = ecalloc(1, sizeof(php_snmp_object) + zend_object_properties_size(class_type));
 
 	zend_object_std_init(&intern->zo, class_type);
 	object_properties_init(&intern->zo, class_type);
@@ -964,41 +962,20 @@ retry:
 static int php_snmp_parse_oid(zval *object, int st, struct objid_query *objid_query, zval *oid, zval *type, zval *value)
 {
 	char *pptr;
-	HashPosition pos_oid, pos_type, pos_value;
+	uint32_t idx_type = 0, idx_value = 0;
 	zval *tmp_oid, *tmp_type, *tmp_value;
 
 	if (Z_TYPE_P(oid) != IS_ARRAY) {
-		/*
-		if (Z_ISREF_PP(oid)) {
-			SEPARATE_ZVAL(oid);
-		}
-		*/
 		convert_to_string_ex(oid);
-	} else if (Z_TYPE_P(oid) == IS_ARRAY) {
-		zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(oid), &pos_oid);
 	}
 
 	if (st & SNMP_CMD_SET) {
 		if (Z_TYPE_P(type) != IS_ARRAY) {
-			/*
-			if (Z_ISREF_PP(type)) {
-				SEPARATE_ZVAL(type);
-			}
-			*/
 			convert_to_string_ex(type);
-		} else if (Z_TYPE_P(type) == IS_ARRAY) {
-			zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(type), &pos_type);
 		}
 
 		if (Z_TYPE_P(value) != IS_ARRAY) {
-			/*
-			if (Z_ISREF_PP(value)) {
-				SEPARATE_ZVAL(value);
-			}
-			*/
 			convert_to_string_ex(value);
-		} else if (Z_TYPE_P(value) == IS_ARRAY) {
-			zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(value), &pos_value);
 		}
 	}
 
@@ -1041,10 +1018,7 @@ static int php_snmp_parse_oid(zval *object, int st, struct objid_query *objid_qu
 			return FALSE;
 		}
 		objid_query->array_output = ( (st & SNMP_CMD_SET) ? FALSE : TRUE );
-		for (zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(oid), &pos_oid);
-			(tmp_oid = zend_hash_get_current_data_ex(Z_ARRVAL_P(oid), &pos_oid)) != NULL;
-			zend_hash_move_forward_ex(Z_ARRVAL_P(oid), &pos_oid) ) {
-
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(oid), tmp_oid) {
 			convert_to_string_ex(tmp_oid);
 			objid_query->vars[objid_query->count].oid = Z_STRVAL_P(tmp_oid);
 			if (st & SNMP_CMD_SET) {
@@ -1052,7 +1026,14 @@ static int php_snmp_parse_oid(zval *object, int st, struct objid_query *objid_qu
 					pptr = Z_STRVAL_P(type);
 					objid_query->vars[objid_query->count].type = *pptr;
 				} else if (Z_TYPE_P(type) == IS_ARRAY) {
-					if ((tmp_type = zend_hash_get_current_data_ex(Z_ARRVAL_P(type), &pos_type)) != NULL) {
+					while (idx_type < Z_ARRVAL_P(type)->nNumUsed) {
+						tmp_type = &Z_ARRVAL_P(type)->arData[idx_type].val;
+						if (Z_TYPE_P(tmp_type) != IS_UNDEF) {
+							break;
+						}
+						idx_type++;
+					}
+					if (idx_type < Z_ARRVAL_P(type)->nNumUsed) {
 						convert_to_string_ex(tmp_type);
 						if (Z_STRLEN_P(tmp_type) != 1) {
 							php_error_docref(NULL, E_WARNING, "'%s': bogus type '%s', should be single char, got %u", Z_STRVAL_P(tmp_oid), Z_STRVAL_P(tmp_type), Z_STRLEN_P(tmp_type));
@@ -1061,7 +1042,7 @@ static int php_snmp_parse_oid(zval *object, int st, struct objid_query *objid_qu
 						}
 						pptr = Z_STRVAL_P(tmp_type);
 						objid_query->vars[objid_query->count].type = *pptr;
-						zend_hash_move_forward_ex(Z_ARRVAL_P(type), &pos_type);
+						idx_type++;
 					} else {
 						php_error_docref(NULL, E_WARNING, "'%s': no type set", Z_STRVAL_P(tmp_oid));
 						efree(objid_query->vars);
@@ -1072,10 +1053,17 @@ static int php_snmp_parse_oid(zval *object, int st, struct objid_query *objid_qu
 				if (Z_TYPE_P(value) == IS_STRING) {
 					objid_query->vars[objid_query->count].value = Z_STRVAL_P(value);
 				} else if (Z_TYPE_P(value) == IS_ARRAY) {
-					if ((tmp_value = zend_hash_get_current_data_ex(Z_ARRVAL_P(value), &pos_value)) != NULL) {
+					while (idx_value < Z_ARRVAL_P(value)->nNumUsed) {
+						tmp_value = &Z_ARRVAL_P(value)->arData[idx_value].val;
+						if (Z_TYPE_P(tmp_value) != IS_UNDEF) {
+							break;
+						}
+						idx_value++;
+					}
+					if (idx_value < Z_ARRVAL_P(value)->nNumUsed) {
 						convert_to_string_ex(tmp_value);
 						objid_query->vars[objid_query->count].value = Z_STRVAL_P(tmp_value);
-						zend_hash_move_forward_ex(Z_ARRVAL_P(value), &pos_value);
+						idx_value++;
 					} else {
 						php_error_docref(NULL, E_WARNING, "'%s': no value set", Z_STRVAL_P(tmp_oid));
 						efree(objid_query->vars);
@@ -1084,7 +1072,7 @@ static int php_snmp_parse_oid(zval *object, int st, struct objid_query *objid_qu
 				}
 			}
 			objid_query->count++;
-		}
+		} ZEND_HASH_FOREACH_END();
 	}
 
 	/* now parse all OIDs */
@@ -1817,25 +1805,20 @@ PHP_METHOD(snmp, __construct)
 	zend_long retries = SNMP_DEFAULT_RETRIES;
 	zend_long version = SNMP_DEFAULT_VERSION;
 	int argc = ZEND_NUM_ARGS();
-	zend_error_handling error_handling;
 
 	snmp_object = Z_SNMP_P(object);
-	zend_replace_error_handling(EH_THROW, NULL, &error_handling);
 
-	if (zend_parse_parameters(argc, "lss|ll", &version, &a1, &a1_len, &a2, &a2_len, &timeout, &retries) == FAILURE) {
-		zend_restore_error_handling(&error_handling);
+	if (zend_parse_parameters_throw(argc, "lss|ll", &version, &a1, &a1_len, &a2, &a2_len, &timeout, &retries) == FAILURE) {
 		return;
 	}
 
-	zend_restore_error_handling(&error_handling);
-
-	switch(version) {
+	switch (version) {
 		case SNMP_VERSION_1:
 		case SNMP_VERSION_2c:
 		case SNMP_VERSION_3:
 			break;
 		default:
-			zend_throw_exception(zend_exception_get_default(), "Unknown SNMP protocol version", 0);
+			zend_throw_exception(zend_ce_exception, "Unknown SNMP protocol version", 0);
 			return;
 	}
 
@@ -2320,16 +2303,16 @@ static void free_php_snmp_properties(zval *el)  /* {{{ */
 
 /* {{{ php_snmp_class_methods[] */
 static zend_function_entry php_snmp_class_methods[] = {
-	PHP_ME(snmp,	 __construct,			arginfo_snmp_create,		ZEND_ACC_PUBLIC)
-	PHP_ME(snmp,	 close,				arginfo_snmp_void,		ZEND_ACC_PUBLIC)
-	PHP_ME(snmp,	 setSecurity,			arginfo_snmp_setSecurity,	ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 __construct,		arginfo_snmp_create,		ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 close,				arginfo_snmp_void,			ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 setSecurity,		arginfo_snmp_setSecurity,	ZEND_ACC_PUBLIC)
 
-	PHP_ME(snmp,	 get,				arginfo_snmp_get,		ZEND_ACC_PUBLIC)
-	PHP_ME(snmp,	 getnext,			arginfo_snmp_get,		ZEND_ACC_PUBLIC)
-	PHP_ME(snmp,	 walk,				arginfo_snmp_walk,		ZEND_ACC_PUBLIC)
-	PHP_ME(snmp,	 set,				arginfo_snmp_set,		ZEND_ACC_PUBLIC)
-	PHP_ME(snmp,	 getErrno,			arginfo_snmp_void,		ZEND_ACC_PUBLIC)
-	PHP_ME(snmp,	 getError,			arginfo_snmp_void,		ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 get,				arginfo_snmp_get,			ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 getnext,			arginfo_snmp_get,			ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 walk,				arginfo_snmp_walk,			ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 set,				arginfo_snmp_set,			ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 getErrno,			arginfo_snmp_void,			ZEND_ACC_PUBLIC)
+	PHP_ME(snmp,	 getError,			arginfo_snmp_void,			ZEND_ACC_PUBLIC)
 
 	PHP_FE_END
 };
@@ -2434,7 +2417,7 @@ PHP_MINIT_FUNCTION(snmp)
 #ifdef HAVE_SPL
 	php_snmp_exception_ce = zend_register_internal_class_ex(&cex, spl_ce_RuntimeException);
 #else
-	php_snmp_exception_ce = zend_register_internal_class_ex(&cex, zend_exception_get_default());
+	php_snmp_exception_ce = zend_register_internal_class_ex(&cex, zend_ce_exception);
 #endif
 
 	return SUCCESS;
@@ -2480,13 +2463,9 @@ static const zend_module_dep snmp_module_deps[] = {
 /* {{{ snmp_module_entry
  */
 zend_module_entry snmp_module_entry = {
-#if ZEND_MODULE_API_NO >= 20050922
 	STANDARD_MODULE_HEADER_EX,
 	NULL,
 	snmp_module_deps,
-#else
-	STANDARD_MODULE_HEADER,
-#endif
 	"snmp",
 	snmp_functions,
 	PHP_MINIT(snmp),

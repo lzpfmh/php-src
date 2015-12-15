@@ -1,6 +1,6 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 5                                                        |
+   | PHP Version 7                                                        |
    +----------------------------------------------------------------------+
    | Copyright (c) 1997-2015 The PHP Group                                |
    +----------------------------------------------------------------------+
@@ -28,7 +28,7 @@ static void phpdbg_rebuild_http_globals_array(int type, const char *name) {
 	if (Z_TYPE(PG(http_globals)[type]) != IS_UNDEF) {
 		zval_dtor(&PG(http_globals)[type]);
 	}
-	if ((zvp = zend_hash_str_find(&EG(symbol_table).ht, name, strlen(name)))) {
+	if ((zvp = zend_hash_str_find(&EG(symbol_table), name, strlen(name)))) {
 		Z_ADDREF_P(zvp);
 		PG(http_globals)[type] = *zvp;
 	}
@@ -36,7 +36,7 @@ static void phpdbg_rebuild_http_globals_array(int type, const char *name) {
 
 
 static int phpdbg_dearm_autoglobals(zend_auto_global *auto_global) {
-	if (auto_global->name->len != sizeof("GLOBALS") - 1 || memcmp(auto_global->name->val, "GLOBALS", sizeof("GLOBALS") - 1)) {
+	if (ZSTR_LEN(auto_global->name) != sizeof("GLOBALS") - 1 || memcmp(ZSTR_VAL(auto_global->name), "GLOBALS", sizeof("GLOBALS") - 1)) {
 		auto_global->armed = 0;
 	}
 
@@ -50,7 +50,7 @@ typedef struct {
 
 static int phpdbg_array_data_compare(const void *a, const void *b) {
 	Bucket *f, *s;
-	zval result;
+	int result;
 	zval *first, *second;
 
 	f = *((Bucket **) a);
@@ -59,13 +59,11 @@ static int phpdbg_array_data_compare(const void *a, const void *b) {
 	first = &f->val;
 	second = &s->val;
 
-	if (string_compare_function(&result, first, second) == FAILURE) {
-		return 0;
-	}
+	result = string_compare_function(first, second);
 
-	if (Z_LVAL(result) < 0) {
+	if (result < 0) {
 		return -1;
-	} else if (Z_LVAL(result) > 0) {
+	} else if (result > 0) {
 		return 1;
 	}
 
@@ -157,7 +155,7 @@ void phpdbg_webdata_decompress(char *msg, int len) {
 		PG(auto_globals_jit) = 0;
 		zend_hash_apply(CG(auto_globals), (apply_func_t) phpdbg_dearm_autoglobals);
 
-		zend_hash_clean(&EG(symbol_table).ht);
+		zend_hash_clean(&EG(symbol_table));
 		EG(symbol_table) = *Z_ARR_P(zvp);
 
 		/* Rebuild cookies, env vars etc. from GLOBALS (PG(http_globals)) */

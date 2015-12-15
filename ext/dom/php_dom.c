@@ -36,39 +36,39 @@
 #define PHP_XPTR 2
 
 /* {{{ class entries */
-zend_class_entry *dom_node_class_entry;
-zend_class_entry *dom_domexception_class_entry;
-zend_class_entry *dom_domstringlist_class_entry;
-zend_class_entry *dom_namelist_class_entry;
-zend_class_entry *dom_domimplementationlist_class_entry;
-zend_class_entry *dom_domimplementationsource_class_entry;
-zend_class_entry *dom_domimplementation_class_entry;
-zend_class_entry *dom_documentfragment_class_entry;
-zend_class_entry *dom_document_class_entry;
-zend_class_entry *dom_nodelist_class_entry;
-zend_class_entry *dom_namednodemap_class_entry;
-zend_class_entry *dom_characterdata_class_entry;
-zend_class_entry *dom_attr_class_entry;
-zend_class_entry *dom_element_class_entry;
-zend_class_entry *dom_text_class_entry;
-zend_class_entry *dom_comment_class_entry;
-zend_class_entry *dom_typeinfo_class_entry;
-zend_class_entry *dom_userdatahandler_class_entry;
-zend_class_entry *dom_domerror_class_entry;
-zend_class_entry *dom_domerrorhandler_class_entry;
-zend_class_entry *dom_domlocator_class_entry;
-zend_class_entry *dom_domconfiguration_class_entry;
-zend_class_entry *dom_cdatasection_class_entry;
-zend_class_entry *dom_documenttype_class_entry;
-zend_class_entry *dom_notation_class_entry;
-zend_class_entry *dom_entity_class_entry;
-zend_class_entry *dom_entityreference_class_entry;
-zend_class_entry *dom_processinginstruction_class_entry;
-zend_class_entry *dom_string_extend_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_node_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domexception_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domstringlist_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_namelist_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domimplementationlist_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domimplementationsource_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domimplementation_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_documentfragment_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_document_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_nodelist_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_namednodemap_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_characterdata_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_attr_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_element_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_text_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_comment_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_typeinfo_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_userdatahandler_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domerror_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domerrorhandler_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domlocator_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_domconfiguration_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_cdatasection_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_documenttype_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_notation_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_entity_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_entityreference_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_processinginstruction_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_string_extend_class_entry;
 #if defined(LIBXML_XPATH_ENABLED)
-zend_class_entry *dom_xpath_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_xpath_class_entry;
 #endif
-zend_class_entry *dom_namespace_node_class_entry;
+PHP_DOM_EXPORT zend_class_entry *dom_namespace_node_class_entry;
 /* }}} */
 
 zend_object_handlers dom_object_handlers;
@@ -337,7 +337,7 @@ zval *dom_read_property(zval *object, zval *member, int type, void **cache_slot,
 	if (obj->prop_handler != NULL) {
 		hnd = zend_hash_find_ptr(obj->prop_handler, member_str);
 	} else if (instanceof_function(obj->std.ce, dom_node_class_entry)) {
-		php_error(E_WARNING, "Couldn't fetch %s. Node no longer exists", obj->std.ce->name->val);
+		php_error(E_WARNING, "Couldn't fetch %s. Node no longer exists", ZSTR_VAL(obj->std.ce->name));
 	}
 
 	if (hnd) {
@@ -418,16 +418,14 @@ static HashTable* dom_get_debug_info_helper(zval *object, int *is_temp) /* {{{ *
 	HashTable			*debug_info,
 						*prop_handlers = obj->prop_handler,
 						*std_props;
-	HashPosition		pos;
+	zend_string			*string_key;
 	dom_prop_handler	*entry;
 	zval object_value;
 
 	*is_temp = 1;
 
-	ALLOC_HASHTABLE(debug_info);
-
 	std_props = zend_std_get_properties(object);
-	zend_array_dup(debug_info, std_props);
+	debug_info = zend_array_dup(std_props);
 
 	if (!prop_handlers) {
 		return debug_info;
@@ -435,19 +433,10 @@ static HashTable* dom_get_debug_info_helper(zval *object, int *is_temp) /* {{{ *
 
 	ZVAL_STRING(&object_value, "(object value omitted)");
 
-	for (zend_hash_internal_pointer_reset_ex(prop_handlers, &pos);
-			(entry = zend_hash_get_current_data_ptr_ex(prop_handlers, &pos)) != NULL;
-			zend_hash_move_forward_ex(prop_handlers, &pos)) {
+	ZEND_HASH_FOREACH_STR_KEY_PTR(prop_handlers, string_key, entry) {
 		zval value;
-		zend_string *string_key;
-		zend_ulong num_key;
 
-		if (entry->read_func(obj, &value) == FAILURE) {
-			continue;
-		}
-
-		if (zend_hash_get_current_key_ex(prop_handlers, &string_key,
-			&num_key, &pos) != HASH_KEY_IS_STRING) {
+		if (entry->read_func(obj, &value) == FAILURE || !string_key) {
 			continue;
 		}
 
@@ -457,7 +446,7 @@ static HashTable* dom_get_debug_info_helper(zval *object, int *is_temp) /* {{{ *
 		}
 
 		zend_hash_add(debug_info, string_key, &value);
-	}
+	} ZEND_HASH_FOREACH_END();
 
 	zval_dtor(&object_value);
 
@@ -518,7 +507,6 @@ static zend_object *dom_objects_store_clone_obj(zval *zobject) /* {{{ */
 	dom_object *clone = dom_objects_set_class(intern->std.ce, 0);
 
 	clone->std.handlers = dom_get_obj_handlers();
-	zend_objects_clone_members(&clone->std, &intern->std);
 
 	if (instanceof_function(intern->std.ce, dom_node_class_entry)) {
 		xmlNodePtr node = (xmlNodePtr)dom_object_get_node(intern);
@@ -538,6 +526,8 @@ static zend_object *dom_objects_store_clone_obj(zval *zobject) /* {{{ */
 
 		}
 	}
+
+	zend_objects_clone_members(&clone->std, &intern->std);
 
 	return &clone->std;
 }
@@ -625,7 +615,7 @@ PHP_MINIT_FUNCTION(dom)
 	zend_hash_init(&classes, 0, NULL, NULL, 1);
 
 	INIT_CLASS_ENTRY(ce, "DOMException", php_dom_domexception_class_functions);
-	dom_domexception_class_entry = zend_register_internal_class_ex(&ce, zend_exception_get_default());
+	dom_domexception_class_entry = zend_register_internal_class_ex(&ce, zend_ce_exception);
 	dom_domexception_class_entry->ce_flags |= ZEND_ACC_FINAL;
 	zend_declare_property_long(dom_domexception_class_entry, "code", sizeof("code")-1, 0, ZEND_ACC_PUBLIC);
 
@@ -1067,7 +1057,8 @@ void dom_namednode_iter(dom_object *basenode, int ntype, dom_object *intern, xml
 {
 	dom_nnodemap_object *mapptr = (dom_nnodemap_object *) intern->ptr;
 
-	//??? if (basenode)
+	ZEND_ASSERT(basenode != NULL);
+
 	ZVAL_OBJ(&mapptr->baseobj_zv, &basenode->std);
 	Z_ADDREF(mapptr->baseobj_zv);
 
@@ -1081,7 +1072,7 @@ void dom_namednode_iter(dom_object *basenode, int ntype, dom_object *intern, xml
 
 static dom_object* dom_objects_set_class(zend_class_entry *class_type, zend_bool hash_copy) /* {{{ */
 {
-	dom_object *intern = ecalloc(1, sizeof(dom_object) + sizeof(zval) * (class_type->default_properties_count - 1));
+	dom_object *intern = ecalloc(1, sizeof(dom_object) + zend_object_properties_size(class_type));
 
 	zend_class_entry *base_class = class_type;
 	while (base_class->type != ZEND_INTERNAL_CLASS && base_class->parent != NULL) {
@@ -1112,7 +1103,7 @@ zend_object *dom_objects_new(zend_class_entry *class_type)
 /* {{{ zend_object_value dom_xpath_objects_new(zend_class_entry *class_type) */
 zend_object *dom_xpath_objects_new(zend_class_entry *class_type)
 {
-	dom_xpath_object *intern = ecalloc(1, sizeof(dom_xpath_object) + sizeof(zval) * (class_type->default_properties_count - 1));
+	dom_xpath_object *intern = ecalloc(1, sizeof(dom_xpath_object) + zend_object_properties_size(class_type));
 
 	ALLOC_HASHTABLE(intern->registered_phpfunctions);
 	zend_hash_init(intern->registered_phpfunctions, 0, NULL, ZVAL_PTR_DTOR, 0);

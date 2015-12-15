@@ -1,6 +1,6 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 5                                                        |
+   | PHP Version 7                                                        |
    +----------------------------------------------------------------------+
    | Copyright (c) 1997-2015 The PHP Group                                |
    +----------------------------------------------------------------------+
@@ -20,6 +20,11 @@
 #define PHPDBG_IO_H
 
 #include "phpdbg.h"
+
+/* Older versions of glibc <= 2.3.0 and <= OS X 10.5 do not have this constant defined */
+#ifndef AI_NUMERICSERV
+#define AI_NUMERICSERV 0
+#endif
 
 PHPDBG_API int phpdbg_consume_stdin_line(char *buf);
 

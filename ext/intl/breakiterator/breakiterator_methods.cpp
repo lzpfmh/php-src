@@ -148,42 +148,32 @@ U_CFUNC PHP_FUNCTION(breakiter_get_text)
 
 U_CFUNC PHP_FUNCTION(breakiter_set_text)
 {
-	char	*text;
-	size_t		text_len;
 	UText	*ut = NULL;
-	zval	*textzv;
+	zend_string	*text;
 	BREAKITER_METHOD_INIT_VARS;
 	object = getThis();
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s",
-			&text, &text_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &text) == FAILURE) {
 		intl_error_set(NULL, U_ILLEGAL_ARGUMENT_ERROR,
 			"breakiter_set_text: bad arguments", 0);
 		RETURN_FALSE;
 	}
 
-	int res = zend_get_parameters_ex(1, &textzv);
-	assert(res == SUCCESS);
-
 	BREAKITER_METHOD_FETCH_OBJECT;
 
-	/* assert it's safe to use text and text_len because zpp changes the
-	 * arguments in the stack */
-	assert(text == Z_STRVAL_P(textzv));
-
-	ut = utext_openUTF8(ut, text, text_len, BREAKITER_ERROR_CODE_P(bio));
-	INTL_CTOR_CHECK_STATUS(bio, "breakiter_set_text: error opening UText");
+	ut = utext_openUTF8(ut, ZSTR_VAL(text), ZSTR_LEN(text), BREAKITER_ERROR_CODE_P(bio));
+	INTL_METHOD_CHECK_STATUS_OR_NULL(bio, "breakiter_set_text: error opening UText");
 
 	bio->biter->setText(ut, BREAKITER_ERROR_CODE(bio));
 	utext_close(ut); /* ICU shallow clones the UText */
-	INTL_CTOR_CHECK_STATUS(bio, "breakiter_set_text: error calling "
+	INTL_METHOD_CHECK_STATUS_OR_NULL(bio, "breakiter_set_text: error calling "
 		"BreakIterator::setText()");
 
 	/* When ICU clones the UText, it does not copy the buffer, so we have to
 	 * keep the string buffer around by holding a reference to its zval. This
 	 * also allows a faste implementation of getText() */
 	zval_ptr_dtor(&bio->text);
-	ZVAL_COPY(&bio->text, textzv);
+	ZVAL_STR_COPY(&bio->text, text);
 
 	RETURN_TRUE;
 }
@@ -272,7 +262,7 @@ U_CFUNC PHP_FUNCTION(breakiter_next)
 		no_arg_version = true;
 	} else if (ZEND_NUM_ARGS() == 1) {
 		zval *arg;
-		int res = zend_get_parameters_ex(1, &arg);
+		int res = zend_parse_parameters(ZEND_NUM_ARGS(), "z", &arg);
 		assert(res == SUCCESS);
 		if (Z_TYPE_P(arg) == IS_NULL) {
 			no_arg_version = true;

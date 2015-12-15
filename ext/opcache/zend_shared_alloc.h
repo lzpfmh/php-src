@@ -68,6 +68,7 @@
 #define FAILED_REATTACHED       2
 #define SUCCESSFULLY_REATTACHED 4
 #define ALLOC_FAIL_MAPPING      8
+#define ALLOC_FALLBACK          9
 
 typedef struct _zend_shared_segment {
     size_t  size;
@@ -91,7 +92,7 @@ typedef struct _handler_entry {
 
 typedef struct _zend_shared_memory_state {
 	int *positions;   /* current positions for each segment */
-	int  shared_free; /* amount of free shared memory */
+	size_t shared_free; /* amount of free shared memory */
 } zend_shared_memory_state;
 
 typedef struct _zend_smm_shared_globals {
@@ -134,13 +135,13 @@ typedef union _align_test {
 } align_test;
 
 #if ZEND_GCC_VERSION >= 2000
-# define PLATFORM_ALIGNMENT (__alignof__ (align_test))
+# define PLATFORM_ALIGNMENT (__alignof__(align_test) < 8 ? 8 : __alignof__(align_test))
 #else
 # define PLATFORM_ALIGNMENT (sizeof(align_test))
 #endif
 
 #define ZEND_ALIGNED_SIZE(size) \
-	((size + PLATFORM_ALIGNMENT - 1) & ~(PLATFORM_ALIGNMENT - 1))
+	ZEND_MM_ALIGNED_SIZE_EX(size, PLATFORM_ALIGNMENT)
 
 /* exclusive locking */
 void zend_shared_alloc_lock(void);
@@ -148,6 +149,8 @@ void zend_shared_alloc_unlock(void); /* returns the allocated size during lock..
 void zend_shared_alloc_safe_unlock(void);
 
 /* old/new mapping functions */
+void zend_shared_alloc_init_xlat_table(void);
+void zend_shared_alloc_destroy_xlat_table(void);
 void zend_shared_alloc_clear_xlat_table(void);
 void zend_shared_alloc_register_xlat_entry(const void *old, const void *new);
 void *zend_shared_alloc_get_xlat_entry(const void *old);

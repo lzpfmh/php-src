@@ -43,12 +43,6 @@
 
 #include "rfc1867.h"
 
-#ifdef PHP_WIN32
-#define STRCASECMP stricmp
-#else
-#define STRCASECMP strcasecmp
-#endif
-
 #include "php_content_types.h"
 
 #ifdef ZTS
@@ -65,7 +59,7 @@ static void _type_dtor(zval *zv)
 static void sapi_globals_ctor(sapi_globals_struct *sapi_globals)
 {
 #ifdef ZTS
-	ZEND_TSRMLS_CACHE_UPDATE;
+	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 	memset(sapi_globals, 0, sizeof(*sapi_globals));
 	zend_hash_init_ex(&sapi_globals->known_post_content_types, 8, NULL, _type_dtor, 1, 0);
@@ -83,10 +77,6 @@ SAPI_API sapi_module_struct sapi_module;
 
 SAPI_API void sapi_startup(sapi_module_struct *sf)
 {
-#ifdef ZEND_SIGNALS
-	zend_signal_startup();
-#endif
-
 	sf->ini_entries = NULL;
 	sapi_module = *sf;
 
@@ -152,14 +142,14 @@ PHP_FUNCTION(header_register_callback)
 }
 /* }}} */
 
-static void sapi_run_header_callback(void)
+static void sapi_run_header_callback(zval *callback)
 {
 	int   error;
 	zend_fcall_info fci;
 	char *callback_error = NULL;
 	zval retval;
 
-	if (zend_fcall_info_init(&SG(callback_func), 0, &fci, &SG(fci_cache), NULL, &callback_error) == SUCCESS) {
+	if (zend_fcall_info_init(callback, 0, &fci, &SG(fci_cache), NULL, &callback_error) == SUCCESS) {
 		fci.retval = &retval;
 
 		error = zend_call_function(&fci, &SG(fci_cache));
@@ -247,15 +237,15 @@ static void sapi_read_post_data(void)
 	}
 }
 
-SAPI_API int sapi_read_post_block(char *buffer, size_t buflen)
+SAPI_API size_t sapi_read_post_block(char *buffer, size_t buflen)
 {
-	int read_bytes;
+	size_t read_bytes;
 
 	if (!sapi_module.read_post) {
-		return -1;
+		return 0;
 	}
 
-	read_bytes = (int)sapi_module.read_post(buffer, buflen);
+	read_bytes = sapi_module.read_post(buffer, buflen);
 
 	if (read_bytes > 0) {
 		/* gogo */
@@ -281,7 +271,7 @@ SAPI_API SAPI_POST_READER_FUNC(sapi_read_standard_form_data)
 	SG(request_info).request_body = php_stream_temp_create_ex(TEMP_STREAM_DEFAULT, SAPI_POST_BLOCK_SIZE, PG(upload_tmp_dir));
 
 	if (sapi_module.read_post) {
-		int read_bytes;
+		size_t read_bytes;
 
 		for (;;) {
 			char buffer[SAPI_POST_BLOCK_SIZE];
@@ -289,7 +279,12 @@ SAPI_API SAPI_POST_READER_FUNC(sapi_read_standard_form_data)
 			read_bytes = sapi_read_post_block(buffer, SAPI_POST_BLOCK_SIZE);
 
 			if (read_bytes > 0) {
-				php_stream_write(SG(request_info).request_body, buffer, read_bytes);
+				if (php_stream_write(SG(request_info).request_body, buffer, read_bytes) != read_bytes) {
+					/* if parts of the stream can't be written, purge it completely */
+					php_stream_truncate_set_size(SG(request_info).request_body, 0);
+					php_error_docref(NULL, E_WARNING, "POST data can't be buffered; all data discarded");
+					break;
+				}
 			}
 
 			if ((SG(post_max_size) > 0) && (SG(read_post_bytes) > SG(post_max_size))) {
@@ -451,7 +446,6 @@ SAPI_API void sapi_activate(void)
 	SG(sapi_headers).http_status_line = NULL;
 	SG(sapi_headers).mimetype = NULL;
 	SG(headers_sent) = 0;
-	SG(callback_run) = 0;
 	ZVAL_UNDEF(&SG(callback_func));
 	SG(read_post_bytes) = 0;
 	SG(request_info).request_body = NULL;
@@ -513,7 +507,7 @@ SAPI_API void sapi_deactivate(void)
 		if (!SG(post_read)) {
 			/* make sure we've consumed all request input data */
 			char dummy[SAPI_POST_BLOCK_SIZE];
-			int read_bytes;
+			size_t read_bytes;
 
 			do {
 				read_bytes = sapi_read_post_block(dummy, SAPI_POST_BLOCK_SIZE);
@@ -548,8 +542,6 @@ SAPI_API void sapi_deactivate(void)
 	sapi_send_headers_free();
 	SG(sapi_started) = 0;
 	SG(headers_sent) = 0;
-	SG(callback_run) = 0;
-	zval_ptr_dtor(&SG(callback_func));
 	SG(request_info).headers_read = 0;
 	SG(global_request_time) = 0;
 }
@@ -599,7 +591,7 @@ static void sapi_update_response_code(int ncode)
  * since zend_llist_del_element only remove one matched item once,
  * we should remove them by ourself
  */
-static void sapi_remove_header(zend_llist *l, char *name, uint len) {
+static void sapi_remove_header(zend_llist *l, char *name, size_t len) {
 	sapi_header_struct *header;
 	zend_llist_element *next;
 	zend_llist_element *current=l->head;
@@ -627,7 +619,7 @@ static void sapi_remove_header(zend_llist *l, char *name, uint len) {
 	}
 }
 
-SAPI_API int sapi_add_header_ex(char *header_line, uint header_line_len, zend_bool duplicate, zend_bool replace)
+SAPI_API int sapi_add_header_ex(char *header_line, size_t header_line_len, zend_bool duplicate, zend_bool replace)
 {
 	sapi_header_line ctr = {0};
 	int r;
@@ -670,7 +662,7 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg)
 	sapi_header_struct sapi_header;
 	char *colon_offset;
 	char *header_line;
-	uint header_line_len;
+	size_t header_line_len;
 	int http_response_code;
 
 	if (SG(headers_sent) && !SG(request_info).no_headers) {
@@ -744,13 +736,8 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg)
 		/* new line/NUL character safety check */
 		uint i;
 		for (i = 0; i < header_line_len; i++) {
-			/* RFC 2616 allows new lines if followed by SP or HT */
-			int illegal_break =
-					(header_line[i+1] != ' ' && header_line[i+1] != '\t')
-					&& (
-						header_line[i] == '\n'
-						|| (header_line[i] == '\r' && header_line[i+1] != '\n'));
-			if (illegal_break) {
+			/* RFC 7230 ch. 3.2.4 deprecates folding support */
+			if (header_line[i] == '\n' || header_line[i] == '\r') {
 				efree(header_line);
 				sapi_module.sapi_error(E_WARNING, "Header may not contain "
 						"more than a single header, new line detected");
@@ -782,7 +769,7 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg)
 		colon_offset = strchr(header_line, ':');
 		if (colon_offset) {
 			*colon_offset = 0;
-			if (!STRCASECMP(header_line, "Content-Type")) {
+			if (!strcasecmp(header_line, "Content-Type")) {
 				char *ptr = colon_offset+1, *mimetype = NULL, *newheader;
 				size_t len = header_line_len - (ptr - header_line), newlen;
 				while (*ptr == ' ') {
@@ -814,7 +801,7 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg)
 				}
 				efree(mimetype);
 				SG(sapi_headers).send_default_content_type = 0;
-			} else if (!STRCASECMP(header_line, "Content-Length")) {
+			} else if (!strcasecmp(header_line, "Content-Length")) {
 				/* Script is setting Content-length. The script cannot reasonably
 				 * know the size of the message body after compression, so it's best
 				 * do disable compression altogether. This contributes to making scripts
@@ -824,7 +811,7 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg)
 				zend_alter_ini_entry_chars(key,
 					"0", sizeof("0") - 1, PHP_INI_USER, PHP_INI_STAGE_RUNTIME);
 				zend_string_release(key);
-			} else if (!STRCASECMP(header_line, "Location")) {
+			} else if (!strcasecmp(header_line, "Location")) {
 				if ((SG(sapi_headers).http_response_code < 300 ||
 					SG(sapi_headers).http_response_code > 399) &&
 					SG(sapi_headers).http_response_code != 201) {
@@ -840,7 +827,7 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg)
 						sapi_update_response_code(302);
 					}
 				}
-			} else if (!STRCASECMP(header_line, "WWW-Authenticate")) { /* HTTP Authentication */
+			} else if (!strcasecmp(header_line, "WWW-Authenticate")) { /* HTTP Authentication */
 				sapi_update_response_code(401); /* authentication-required */
 			}
 			if (sapi_header.header==header_line) {
@@ -861,7 +848,7 @@ SAPI_API int sapi_send_headers(void)
 	int retval;
 	int ret = FAILURE;
 
-	if (SG(headers_sent) || SG(request_info).no_headers || SG(callback_run)) {
+	if (SG(headers_sent) || SG(request_info).no_headers) {
 		return SUCCESS;
 	}
 
@@ -881,9 +868,12 @@ SAPI_API int sapi_send_headers(void)
 		SG(sapi_headers).send_default_content_type = 0;
 	}
 
-	if (Z_TYPE(SG(callback_func)) != IS_UNDEF && !SG(callback_run)) {
-		SG(callback_run) = 1;
-		sapi_run_header_callback();
+	if (Z_TYPE(SG(callback_func)) != IS_UNDEF) {
+		zval cb;
+		ZVAL_COPY_VALUE(&cb, &SG(callback_func));
+		ZVAL_UNDEF(&SG(callback_func));
+		sapi_run_header_callback(&cb);
+		zval_ptr_dtor(&cb);
 	}
 
 	SG(headers_sent) = 1;

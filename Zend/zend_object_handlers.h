@@ -22,7 +22,6 @@
 #ifndef ZEND_OBJECT_HANDLERS_H
 #define ZEND_OBJECT_HANDLERS_H
 
-union _zend_function;
 struct _zend_property_info;
 
 #define ZEND_WRONG_PROPERTY_INFO \
@@ -164,7 +163,7 @@ extern ZEND_API zend_object_handlers std_object_handlers;
 BEGIN_EXTERN_C()
 ZEND_API union _zend_function *zend_std_get_static_method(zend_class_entry *ce, zend_string *function_name_strval, const zval *key);
 ZEND_API zval *zend_std_get_static_property(zend_class_entry *ce, zend_string *property_name, zend_bool silent);
-ZEND_API zend_bool zend_std_unset_static_property(zend_class_entry *ce, zend_string *property_name);
+ZEND_API ZEND_COLD zend_bool zend_std_unset_static_property(zend_class_entry *ce, zend_string *property_name);
 ZEND_API union _zend_function *zend_std_get_constructor(zend_object *object);
 ZEND_API struct _zend_property_info *zend_get_property_info(zend_class_entry *ce, zend_string *member, int silent);
 ZEND_API HashTable *zend_std_get_properties(zval *object);
@@ -179,7 +178,16 @@ ZEND_API int zend_check_protected(zend_class_entry *ce, zend_class_entry *scope)
 
 ZEND_API int zend_check_property_access(zend_object *zobj, zend_string *prop_info_name);
 
-ZEND_API void zend_std_call_user_call(INTERNAL_FUNCTION_PARAMETERS);
+ZEND_API zend_function *zend_get_call_trampoline_func(zend_class_entry *ce, zend_string *method_name, int is_static);
+
+#define zend_free_trampoline(func) do { \
+		if ((func) == &EG(trampoline)) { \
+			EG(trampoline).common.function_name = NULL; \
+		} else { \
+			efree(func); \
+		} \
+	} while (0)
+
 END_EXTERN_C()
 
 #endif

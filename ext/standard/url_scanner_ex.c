@@ -58,7 +58,7 @@ static PHP_INI_MH(OnUpdateTags)
 
 	ctx = &BG(url_adapt_state_ex);
 
-	tmp = estrndup(new_value->val, new_value->len);
+	tmp = estrndup(ZSTR_VAL(new_value), ZSTR_LEN(new_value));
 
 	if (ctx->tags)
 		zend_hash_destroy(ctx->tags);
@@ -115,7 +115,7 @@ static inline void append_modified_url(smart_str *url, smart_str *dest, smart_st
 	const char *bash = NULL;
 	const char *sep = "?";
 
-	q = (p = url->s->val) + url->s->len;
+	q = (p = ZSTR_VAL(url->s)) + ZSTR_LEN(url->s);
 
 scan:
 
@@ -123,38 +123,38 @@ scan:
 {
 	YYCTYPE yych;
 	static const unsigned char yybm[] = {
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128,   0, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128,   0, 128, 128, 128, 128,   0,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128,   0, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128,   0, 128, 128, 128, 128,   0, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
 	};
 
 	if (YYLIMIT <= YYCURSOR) YYFILL(1);
@@ -194,13 +194,13 @@ yy8:
 done:
 
 	/* Don't modify URLs of the format "#mark" */
-	if (bash && bash - url->s->val == 0) {
+	if (bash && bash - ZSTR_VAL(url->s) == 0) {
 		smart_str_append_smart_str(dest, url);
 		return;
 	}
 
 	if (bash)
-		smart_str_appendl(dest, url->s->val, bash - url->s->val);
+		smart_str_appendl(dest, ZSTR_VAL(url->s), bash - ZSTR_VAL(url->s));
 	else
 		smart_str_append_smart_str(dest, url);
 
@@ -222,7 +222,7 @@ static inline void tag_arg(url_adapt_state_ex_t *ctx, char quotes, char type)
 {
 	char f = 0;
 
-	if (strncasecmp(ctx->arg.s->val, ctx->lookup_data, ctx->arg.s->len) == 0)
+	if (strncasecmp(ZSTR_VAL(ctx->arg.s), ctx->lookup_data, ZSTR_LEN(ctx->arg.s)) == 0)
 		f = 1;
 
 	if (quotes)
@@ -276,18 +276,18 @@ static void handle_form(STD_PARA)
 {
 	int doit = 0;
 
-	if (ctx->form_app.s->len > 0) {
-		switch (ctx->tag.s->len) {
+	if (ZSTR_LEN(ctx->form_app.s) > 0) {
+		switch (ZSTR_LEN(ctx->tag.s)) {
 			case sizeof("form") - 1:
-				if (!strncasecmp(ctx->tag.s->val, "form", sizeof("form") - 1)) {
+				if (!strncasecmp(ZSTR_VAL(ctx->tag.s), "form", sizeof("form") - 1)) {
 					doit = 1;
 				}
 				if (doit && ctx->val.s && ctx->lookup_data && *ctx->lookup_data) {
-					char *e, *p = (char *)zend_memnstr(ctx->val.s->val, "://", sizeof("://") - 1, ctx->val.s->val + ctx->val.s->len);
+					char *e, *p = (char *)zend_memnstr(ZSTR_VAL(ctx->val.s), "://", sizeof("://") - 1, ZSTR_VAL(ctx->val.s) + ZSTR_LEN(ctx->val.s));
 					if (p) {
-						e = memchr(p, '/', (ctx->val.s->val + ctx->val.s->len) - p);
+						e = memchr(p, '/', (ZSTR_VAL(ctx->val.s) + ZSTR_LEN(ctx->val.s)) - p);
 						if (!e) {
-							e = ctx->val.s->val + ctx->val.s->len;
+							e = ZSTR_VAL(ctx->val.s) + ZSTR_LEN(ctx->val.s);
 						}
 						if ((e - p) && strncasecmp(p, ctx->lookup_data, (e - p))) {
 							doit = 0;
@@ -297,7 +297,7 @@ static void handle_form(STD_PARA)
 				break;
 
 			case sizeof("fieldset") - 1:
-				if (!strncasecmp(ctx->tag.s->val, "fieldset", sizeof("fieldset") - 1)) {
+				if (!strncasecmp(ZSTR_VAL(ctx->tag.s), "fieldset", sizeof("fieldset") - 1)) {
 					doit = 1;
 				}
 				break;
@@ -321,13 +321,13 @@ static inline void handle_tag(STD_PARA)
 	unsigned int i;
 
 	if (ctx->tag.s) {
-		ctx->tag.s->len = 0;
+		ZSTR_LEN(ctx->tag.s) = 0;
 	}
 	smart_str_appendl(&ctx->tag, start, YYCURSOR - start);
-	for (i = 0; i < ctx->tag.s->len; i++)
-		ctx->tag.s->val[i] = tolower((int)(unsigned char)ctx->tag.s->val[i]);
+	for (i = 0; i < ZSTR_LEN(ctx->tag.s); i++)
+		ZSTR_VAL(ctx->tag.s)[i] = tolower((int)(unsigned char)ZSTR_VAL(ctx->tag.s)[i]);
     /* intentionally using str_find here, in case the hash value is set, but the string val is changed later */
-	if ((ctx->lookup_data = zend_hash_str_find_ptr(ctx->tags, ctx->tag.s->val, ctx->tag.s->len)) != NULL)
+	if ((ctx->lookup_data = zend_hash_str_find_ptr(ctx->tags, ZSTR_VAL(ctx->tag.s), ZSTR_LEN(ctx->tag.s))) != NULL)
 		ok = 1;
 	STATE = ok ? STATE_NEXT_ARG : STATE_PLAIN;
 }
@@ -335,7 +335,7 @@ static inline void handle_tag(STD_PARA)
 static inline void handle_arg(STD_PARA)
 {
 	if (ctx->arg.s) {
-		ctx->arg.s->len = 0;
+		ZSTR_LEN(ctx->arg.s) = 0;
 	}
 	smart_str_appendl(&ctx->arg, start, YYCURSOR - start);
 }
@@ -355,8 +355,8 @@ static inline void xx_mainloop(url_adapt_state_ex_t *ctx, const char *newdata, s
 
 	smart_str_appendl(&ctx->buf, newdata, newlen);
 
-	YYCURSOR = ctx->buf.s->val;
-	YYLIMIT = ctx->buf.s->val + ctx->buf.s->len;
+	YYCURSOR = ZSTR_VAL(ctx->buf.s);
+	YYLIMIT = ZSTR_VAL(ctx->buf.s) + ZSTR_LEN(ctx->buf.s);
 
 	switch (STATE) {
 		case STATE_PLAIN: goto state_plain;
@@ -378,38 +378,38 @@ state_plain:
 {
 	YYCTYPE yych;
 	static const unsigned char yybm[] = {
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128,   0, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128,   0, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
 	};
 	if (YYLIMIT <= YYCURSOR) YYFILL(1);
 	yych = *YYCURSOR;
@@ -441,38 +441,38 @@ state_tag:
 {
 	YYCTYPE yych;
 	static const unsigned char yybm[] = {
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0, 128,   0,   0,   0,   0,   0,
-		  0, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128,   0,   0,   0,   0,   0,
-		  0, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0, 128,   0,   0,   0,   0,   0, 
+		  0, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128,   0,   0,   0,   0,   0, 
+		  0, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
 	};
 	if ((YYLIMIT - YYCURSOR) < 2) YYFILL(2);
 	yych = *YYCURSOR;
@@ -519,38 +519,38 @@ state_next_arg:
 {
 	YYCTYPE yych;
 	static const unsigned char yybm[] = {
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0, 128, 128, 128,   0, 128,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		128,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0, 128, 128, 128,   0, 128,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		128,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
 	};
 	if ((YYLIMIT - YYCURSOR) < 2) YYFILL(2);
 	yych = *YYCURSOR;
@@ -629,38 +629,38 @@ state_arg:
 {
 	YYCTYPE yych;
 	static const unsigned char yybm[] = {
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0, 128,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128,   0,   0,   0,   0,   0,
-		  0, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128, 128, 128, 128, 128, 128,
-		128, 128, 128,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0, 128,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128,   0,   0,   0,   0,   0, 
+		  0, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128, 128, 128, 128, 128, 128, 
+		128, 128, 128,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
 	};
 	if ((YYLIMIT - YYCURSOR) < 2) YYFILL(2);
 	yych = *YYCURSOR;
@@ -701,38 +701,38 @@ state_before_val:
 {
 	YYCTYPE yych;
 	static const unsigned char yybm[] = {
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		128,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0,
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		128,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
+		  0,   0,   0,   0,   0,   0,   0,   0, 
 	};
 	if ((YYLIMIT - YYCURSOR) < 2) YYFILL(2);
 	yych = *YYCURSOR;
@@ -787,38 +787,38 @@ state_val:
 {
 	YYCTYPE yych;
 	static const unsigned char yybm[] = {
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 192, 192, 224, 224, 192, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		192, 224,  64, 224, 224, 224, 224, 128,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224,   0, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
-		224, 224, 224, 224, 224, 224, 224, 224,
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 192, 192, 224, 224, 192, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		192, 224,  64, 224, 224, 224, 224, 128, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224,   0, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
+		224, 224, 224, 224, 224, 224, 224, 224, 
 	};
 	if ((YYLIMIT - YYCURSOR) < 2) YYFILL(2);
 	yych = *YYCURSOR;
@@ -914,28 +914,42 @@ stop:
 		scdebug(("stopped in state %d at pos %d (%d:%c) %d\n", STATE, YYCURSOR - ctx->buf.c, *YYCURSOR, *YYCURSOR, rest));
 	}
 
-	if (rest) memmove(ctx->buf.s->val, start, rest);
-	ctx->buf.s->len = rest;
+	if (rest) memmove(ZSTR_VAL(ctx->buf.s), start, rest);
+	ZSTR_LEN(ctx->buf.s) = rest;
 }
 
-char *php_url_scanner_adapt_single_url(const char *url, size_t urllen, const char *name, const char *value, size_t *newlen)
+
+PHPAPI char *php_url_scanner_adapt_single_url(const char *url, size_t urllen, const char *name, const char *value, size_t *newlen, int urlencode)
 {
 	char *result;
 	smart_str surl = {0};
 	smart_str buf = {0};
 	smart_str url_app = {0};
+	zend_string *encoded;
 
-	smart_str_setl(&surl, url, urllen);
+	smart_str_appendl(&surl, url, urllen);
 
-	smart_str_appends(&url_app, name);
+	if (urlencode) {
+		encoded = php_raw_url_encode(name, strlen(name));
+		smart_str_appendl(&url_app, ZSTR_VAL(encoded), ZSTR_LEN(encoded));
+		zend_string_free(encoded);
+	} else {
+		smart_str_appends(&url_app, name);
+	}
 	smart_str_appendc(&url_app, '=');
-	smart_str_appends(&url_app, value);
+	if (urlencode) {
+		encoded = php_raw_url_encode(value, strlen(value));
+		smart_str_appendl(&url_app, ZSTR_VAL(encoded), ZSTR_LEN(encoded));
+		zend_string_free(encoded);
+	} else {
+		smart_str_appends(&url_app, value);
+	}
 
 	append_modified_url(&surl, &buf, &url_app, PG(arg_separator).output);
 
 	smart_str_0(&buf);
-	if (newlen) *newlen = buf.s->len;
-	result = estrndup(buf.s->val, buf.s->len);
+	if (newlen) *newlen = ZSTR_LEN(buf.s);
+	result = estrndup(ZSTR_VAL(buf.s), ZSTR_LEN(buf.s));
 
 	smart_str_free(&url_app);
 	smart_str_free(&buf);
@@ -957,16 +971,16 @@ static char *url_adapt_ext(const char *src, size_t srclen, size_t *newlen, zend_
 		smart_str_appendl(&ctx->result, "", 0);
 		*newlen = 0;
 	} else {
-		*newlen = ctx->result.s->len;
+		*newlen = ZSTR_LEN(ctx->result.s);
 	}
 	smart_str_0(&ctx->result);
 	if (do_flush) {
 		smart_str_append(&ctx->result, ctx->buf.s);
-		*newlen += ctx->buf.s->len;
+		*newlen += ZSTR_LEN(ctx->buf.s);
 		smart_str_free(&ctx->buf);
 		smart_str_free(&ctx->val);
 	}
-	retval = estrndup(ctx->result.s->val, ctx->result.s->len);
+	retval = estrndup(ZSTR_VAL(ctx->result.s), ZSTR_LEN(ctx->result.s));
 	smart_str_free(&ctx->result);
 	return retval;
 }
@@ -1000,21 +1014,21 @@ static void php_url_scanner_output_handler(char *output, size_t output_len, char
 {
 	size_t len;
 
-	if (BG(url_adapt_state_ex).url_app.s->len != 0) {
+	if (ZSTR_LEN(BG(url_adapt_state_ex).url_app.s) != 0) {
 		*handled_output = url_adapt_ext(output, output_len, &len, (zend_bool) (mode & (PHP_OUTPUT_HANDLER_END | PHP_OUTPUT_HANDLER_CONT | PHP_OUTPUT_HANDLER_FLUSH | PHP_OUTPUT_HANDLER_FINAL) ? 1 : 0));
 		if (sizeof(uint) < sizeof(size_t)) {
 			if (len > UINT_MAX)
 				len = UINT_MAX;
 		}
 		*handled_output_len = len;
-	} else if (BG(url_adapt_state_ex).url_app.s->len == 0) {
+	} else if (ZSTR_LEN(BG(url_adapt_state_ex).url_app.s) == 0) {
 		url_adapt_state_ex_t *ctx = &BG(url_adapt_state_ex);
-		if (ctx->buf.s && ctx->buf.s->len) {
+		if (ctx->buf.s && ZSTR_LEN(ctx->buf.s)) {
 			smart_str_append(&ctx->result, ctx->buf.s);
 			smart_str_appendl(&ctx->result, output, output_len);
 
-			*handled_output = estrndup(ctx->result.s->val, ctx->result.s->len);
-			*handled_output_len = ctx->buf.s->len + output_len;
+			*handled_output = estrndup(ZSTR_VAL(ctx->result.s), ZSTR_LEN(ctx->result.s));
+			*handled_output_len = ZSTR_LEN(ctx->buf.s) + output_len;
 
 			smart_str_free(&ctx->buf);
 			smart_str_free(&ctx->result);
@@ -1028,7 +1042,8 @@ static void php_url_scanner_output_handler(char *output, size_t output_len, char
 
 PHPAPI int php_url_scanner_add_var(char *name, size_t name_len, char *value, size_t value_len, int urlencode)
 {
-	smart_str val = {0};
+	smart_str sname = {0};
+	smart_str svalue = {0};
 	zend_string *encoded;
 
 	if (!BG(url_adapt_state_ex).active) {
@@ -1037,32 +1052,34 @@ PHPAPI int php_url_scanner_add_var(char *name, size_t name_len, char *value, siz
 		BG(url_adapt_state_ex).active = 1;
 	}
 
-
-	if (BG(url_adapt_state_ex).url_app.s && BG(url_adapt_state_ex).url_app.s->len != 0) {
+	if (BG(url_adapt_state_ex).url_app.s && ZSTR_LEN(BG(url_adapt_state_ex).url_app.s) != 0) {
 		smart_str_appends(&BG(url_adapt_state_ex).url_app, PG(arg_separator).output);
 	}
 
 	if (urlencode) {
-		encoded = php_url_encode(value, value_len);
-		smart_str_setl(&val, encoded->val, encoded->len);
+		encoded = php_raw_url_encode(name, name_len);
+		smart_str_appendl(&sname, ZSTR_VAL(encoded), ZSTR_LEN(encoded));
+		zend_string_free(encoded);
+		encoded = php_raw_url_encode(value, value_len);
+		smart_str_appendl(&svalue, ZSTR_VAL(encoded), ZSTR_LEN(encoded));
+		zend_string_free(encoded);
 	} else {
-		smart_str_setl(&val, value, value_len);
+		smart_str_appendl(&sname, name, name_len);
+		smart_str_appendl(&svalue, value, value_len);
 	}
 
-	smart_str_appendl(&BG(url_adapt_state_ex).url_app, name, name_len);
+	smart_str_append_smart_str(&BG(url_adapt_state_ex).url_app, &sname);
 	smart_str_appendc(&BG(url_adapt_state_ex).url_app, '=');
-	smart_str_append_smart_str(&BG(url_adapt_state_ex).url_app, &val);
+	smart_str_append_smart_str(&BG(url_adapt_state_ex).url_app, &svalue);
 
 	smart_str_appends(&BG(url_adapt_state_ex).form_app, "<input type=\"hidden\" name=\"");
-	smart_str_appendl(&BG(url_adapt_state_ex).form_app, name, name_len);
+	smart_str_append_smart_str(&BG(url_adapt_state_ex).form_app, &sname);
 	smart_str_appends(&BG(url_adapt_state_ex).form_app, "\" value=\"");
-	smart_str_append_smart_str(&BG(url_adapt_state_ex).form_app, &val);
+	smart_str_append_smart_str(&BG(url_adapt_state_ex).form_app, &svalue);
 	smart_str_appends(&BG(url_adapt_state_ex).form_app, "\" />");
 
-	if (urlencode) {
-		zend_string_free(encoded);
-	}
-	smart_str_free(&val);
+	smart_str_free(&sname);
+	smart_str_free(&svalue);
 
 	return SUCCESS;
 }
@@ -1070,10 +1087,10 @@ PHPAPI int php_url_scanner_add_var(char *name, size_t name_len, char *value, siz
 PHPAPI int php_url_scanner_reset_vars(void)
 {
 	if (BG(url_adapt_state_ex).form_app.s) {
-		BG(url_adapt_state_ex).form_app.s->len = 0;
+		ZSTR_LEN(BG(url_adapt_state_ex).form_app.s) = 0;
 	}
 	if (BG(url_adapt_state_ex).url_app.s) {
-		BG(url_adapt_state_ex).url_app.s->len = 0;
+		ZSTR_LEN(BG(url_adapt_state_ex).url_app.s) = 0;
 	}
 
 	return SUCCESS;

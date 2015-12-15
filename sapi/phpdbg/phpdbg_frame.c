@@ -1,6 +1,6 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 5                                                        |
+   | PHP Version 7                                                        |
    +----------------------------------------------------------------------+
    | Copyright (c) 1997-2015 The PHP Group                                |
    +----------------------------------------------------------------------+
@@ -142,18 +142,33 @@ static void phpdbg_dump_prototype(zval *tmp) /* {{{ */
 			}
 			phpdbg_xml("<arg %r");
 			if (m && j < m) {
+				char *arg_name = NULL;
+
+				if (arginfo) {
+					if (func->type == ZEND_INTERNAL_FUNCTION) {
+						arg_name = (char *)((zend_internal_arg_info *)&arginfo[j])->name;
+					} else {
+						arg_name = ZSTR_VAL(arginfo[j].name);
+					}
+				}
+
 				if (!is_variadic) {
 					is_variadic = arginfo ? arginfo[j].is_variadic : 0;
 				}
-				phpdbg_xml(" variadic=\"%s\" name=\"%s\">", is_variadic ? "variadic" : "", arginfo ? arginfo[j].name : "");
-				phpdbg_out("%s=%s", arginfo ? arginfo[j].name : "?", is_variadic ? "[": "");
+
+				phpdbg_xml(" variadic=\"%s\" name=\"%s\">", is_variadic ? "variadic" : "", arg_name ? arg_name : "");
+				phpdbg_out("%s=%s", arg_name ? arg_name : "?", is_variadic ? "[": "");
 
 			} else {
 				phpdbg_xml(">");
 			}
 			++j;
 
-			zend_print_flat_zval_r(argstmp);
+			{
+				char *arg_print = phpdbg_short_zval_print(argstmp, 40);
+				php_printf("%s", arg_print);
+				efree(arg_print);
+			}
 
 			phpdbg_xml("</arg>");
 		} ZEND_HASH_FOREACH_END();
@@ -171,7 +186,9 @@ void phpdbg_dump_backtrace(size_t num) /* {{{ */
 	HashPosition position;
 	zval zbacktrace;
 	zval *tmp;
-	zval *file, *line;
+	zval startline, startfile;
+	const char *startfilename;
+	zval *file = &startfile, *line = &startline;
 	int i = 0, limit = num;
 
 	PHPDBG_OUTPUT_BACKUP();
@@ -192,18 +209,13 @@ void phpdbg_dump_backtrace(size_t num) /* {{{ */
 
 	phpdbg_xml("<backtrace %r>");
 
+	Z_LVAL(startline) = zend_get_executed_lineno();
+	startfilename = zend_get_executed_filename();
+	Z_STR(startfile) = zend_string_init(startfilename, strlen(startfilename), 0);
+
 	zend_hash_internal_pointer_reset_ex(Z_ARRVAL(zbacktrace), &position);
 	tmp = zend_hash_get_current_data_ex(Z_ARRVAL(zbacktrace), &position);
-	while (1) {
-		file = zend_hash_str_find(Z_ARRVAL_P(tmp), ZEND_STRL("file"));
-		line = zend_hash_str_find(Z_ARRVAL_P(tmp), ZEND_STRL("line"));
-		zend_hash_move_forward_ex(Z_ARRVAL(zbacktrace), &position);
-
-		if (!(tmp = zend_hash_get_current_data_ex(Z_ARRVAL(zbacktrace), &position))) {
-			phpdbg_write("frame", "id=\"%d\" symbol=\"{main}\" file=\"%s\" line=\"%d\"", "frame #%d: {main} at %s:%ld", i, Z_STRVAL_P(file), Z_LVAL_P(line));
-			break;
-		}
-
+	while ((tmp = zend_hash_get_current_data_ex(Z_ARRVAL(zbacktrace), &position))) {
 		if (file) { /* userland */
 			phpdbg_out("frame #%d: ", i);
 			phpdbg_xml("<frame %r id=\"%d\" file=\"%s\" line=\"%d\"", i, Z_STRVAL_P(file), Z_LVAL_P(line));
@@ -216,12 +228,17 @@ void phpdbg_dump_backtrace(size_t num) /* {{{ */
 			phpdbg_dump_prototype(tmp);
 			phpdbg_out(" (internal function)\n");
 		}
+
+		file = zend_hash_str_find(Z_ARRVAL_P(tmp), ZEND_STRL("file"));
+		line = zend_hash_str_find(Z_ARRVAL_P(tmp), ZEND_STRL("line"));
+		zend_hash_move_forward_ex(Z_ARRVAL(zbacktrace), &position);
 	}
 
-	phpdbg_out("\n");
+	phpdbg_writeln("frame", "id=\"%d\" symbol=\"{main}\" file=\"%s\" line=\"%d\"", "frame #%d: {main} at %s:%ld", i, Z_STRVAL_P(file), Z_LVAL_P(line));
 	phpdbg_xml("</backtrace>");
 
 	zval_dtor(&zbacktrace);
+	zend_string_release(Z_STR(startfile));
 
 	PHPDBG_OUTPUT_BACKUP_RESTORE();
 } /* }}} */

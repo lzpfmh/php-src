@@ -101,7 +101,7 @@ typedef struct event {
 	char **events;
 	char *event_buffer, *result_buffer;
 	zval callback;
-	void **thread_ctx;
+	void *thread_ctx;
 	struct event *event_next;
 	enum event_state { NEW, ACTIVE, DEAD } state;
 } ibase_event;
@@ -127,10 +127,10 @@ enum php_interbase_option {
 	PHP_IBASE_NOWAIT 			= 256
 };
 
-#ifdef ZTS
-#define IBG(v) TSRMG(ibase_globals_id, zend_ibase_globals *, v)
-#else
-#define IBG(v) (ibase_globals.v)
+#define IBG(v) ZEND_MODULE_GLOBALS_ACCESSOR(ibase, v)
+
+#if defined(ZTS) && defined(COMPILE_DL_INTERBASE)
+ZEND_TSRMLS_CACHE_EXTERN();
 #endif
 
 #define BLOB_ID_LEN		18
@@ -155,9 +155,9 @@ void _php_ibase_module_error(char *, ...)
 
 /* determine if a resource is a link or transaction handle */
 #define PHP_IBASE_LINK_TRANS(zv, lh, th)													\
-	do { if (!zv) {																		\
-			ZEND_FETCH_RESOURCE2(lh, ibase_db_link *, NULL, IBG(default_link),				\
-				"InterBase link", le_link, le_plink) }										\
+	do { if (!zv) {																			\
+			lh = (ibase_db_link *)zend_fetch_resource2(IBG(default_link),				\
+				"InterBase link", le_link, le_plink); }										\
 		else																				\
 			_php_ibase_get_link_trans(INTERNAL_FUNCTION_PARAM_PASSTHRU, zv, &lh, &th);		\
 		if (SUCCESS != _php_ibase_def_trans(lh, &th)) { RETURN_FALSE; }			\
@@ -173,7 +173,7 @@ void php_ibase_query_minit(INIT_FUNC_ARGS);
 /* provided by ibase_blobs.c */
 void php_ibase_blobs_minit(INIT_FUNC_ARGS);
 int _php_ibase_string_to_quad(char const *id, ISC_QUAD *qd);
-char *_php_ibase_quad_to_string(ISC_QUAD const qd);
+zend_string *_php_ibase_quad_to_string(ISC_QUAD const qd);
 int _php_ibase_blob_get(zval *return_value, ibase_blob *ib_blob, unsigned long max_len);
 int _php_ibase_blob_add(zval *string_arg, ibase_blob *ib_blob);
 

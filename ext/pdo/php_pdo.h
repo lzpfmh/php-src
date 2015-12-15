@@ -26,6 +26,9 @@
 extern zend_module_entry pdo_module_entry;
 #define phpext_pdo_ptr &pdo_module_entry
 
+#include "php_version.h"
+#define PHP_PDO_VERSION PHP_VERSION
+
 #ifdef PHP_WIN32
 #	if defined(PDO_EXPORTS) || (!defined(COMPILE_DL_PDO))
 #		define PDO_API __declspec(dllexport)
@@ -60,12 +63,6 @@ ZEND_END_MODULE_GLOBALS(pdo)
 
 #define REGISTER_PDO_CLASS_CONST_LONG(const_name, value) \
 	zend_declare_class_constant_long(php_pdo_get_dbh_ce(), const_name, sizeof(const_name)-1, (zend_long)value);
-
-#define REGISTER_PDO_CONST_LONG(const_name, value) { \
-	zend_class_entry **pce;	\
-	if (zend_hash_find(CG(class_table), "pdo", sizeof("pdo"), (void **) &pce) != FAILURE)	\
-		zend_declare_class_constant_long(*pce, const_name, sizeof(const_name)-1, (zend_long)value);	\
-}	\
 
 #define REGISTER_PDO_CLASS_CONST_STRING(const_name, value) \
 	zend_declare_class_constant_stringl(php_pdo_get_dbh_ce(), const_name, sizeof(const_name)-1, value, sizeof(value)-1);

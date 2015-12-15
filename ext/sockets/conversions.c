@@ -159,8 +159,8 @@ static void do_from_to_zval_err(struct err_s *err,
 		smart_str_appends(&path, " > ");
 	}
 
-	if (path.s && path.s->len > 3) {
-		path.s->len -= 3;
+	if (path.s && ZSTR_LEN(path.s) > 3) {
+		ZSTR_LEN(path.s) -= 3;
 	}
 	smart_str_0(&path);
 
@@ -170,7 +170,7 @@ static void do_from_to_zval_err(struct err_s *err,
 	err->level = E_WARNING;
 	spprintf(&err->msg, 0, "error converting %s data (path: %s): %.*s",
 			what_conv,
-			path.s && *path.s->val != '\0' ? path.s->val : "unavailable",
+			path.s && *ZSTR_VAL(path.s) != '\0' ? ZSTR_VAL(path.s) : "unavailable",
 			user_msg_size, user_msg);
 	err->should_free = 1;
 
@@ -217,17 +217,14 @@ static unsigned from_array_iterate(const zval *arr,
 								   void **args,
 								   ser_context *ctx)
 {
-	HashPosition	pos;
 	unsigned		i;
 	zval			*elem;
 	char			buf[sizeof("element #4294967295")];
 	char			*bufp = buf;
 
 	/* Note i starts at 1, not 0! */
-    for (zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(arr), &pos), i = 1;
-			!ctx->err.has_error
-			&& (elem = zend_hash_get_current_data_ex(Z_ARRVAL_P(arr), &pos)) != NULL;
-			zend_hash_move_forward_ex(Z_ARRVAL_P(arr), &pos), i++) {
+	i = 1;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(arr), elem) {
 		if (snprintf(buf, sizeof(buf), "element #%u", i) >= sizeof(buf)) {
 			memcpy(buf, "element", sizeof("element"));
 		}
@@ -236,7 +233,11 @@ static unsigned from_array_iterate(const zval *arr,
 		func(elem, i, args, ctx);
 
 		zend_llist_remove_tail(&ctx->keys);
-    }
+		if (ctx->err.has_error) {
+			break;
+		}
+		i++;
+    } ZEND_HASH_FOREACH_END();
 
     return i -1;
 }
@@ -543,13 +544,13 @@ static void from_zval_write_sin_addr(const zval *zaddr_str, char *inaddr, ser_co
 	zend_string			*addr_str;
 
 	addr_str = zval_get_string((zval *) zaddr_str);
-	res = php_set_inet_addr(&saddr, addr_str->val, ctx->sock);
+	res = php_set_inet_addr(&saddr, ZSTR_VAL(addr_str), ctx->sock);
 	if (res) {
 		memcpy(inaddr, &saddr.sin_addr, sizeof saddr.sin_addr);
 	} else {
 		/* error already emitted, but let's emit another more relevant */
 		do_from_zval_err(ctx, "could not resolve address '%s' to get an AF_INET "
-				"address", addr_str->val);
+				"address", ZSTR_VAL(addr_str));
 	}
 
 	zend_string_release(addr_str);
@@ -559,7 +560,7 @@ static void to_zval_read_sin_addr(const char *data, zval *zv, res_context *ctx)
 	const struct in_addr *addr = (const struct in_addr *)data;
 	socklen_t size = INET_ADDRSTRLEN;
 	zend_string *str = zend_string_alloc(size - 1, 0);
-	memset(str->val, '\0', size);
+	memset(ZSTR_VAL(str), '\0', size);
 
 	ZVAL_NEW_STR(zv, str);
 
@@ -593,7 +594,7 @@ static void from_zval_write_sin6_addr(const zval *zaddr_str, char *addr6, ser_co
 	zend_string			*addr_str;
 
 	addr_str = zval_get_string((zval *) zaddr_str);
-	res = php_set_inet6_addr(&saddr6, addr_str->val, ctx->sock);
+	res = php_set_inet6_addr(&saddr6, ZSTR_VAL(addr_str), ctx->sock);
 	if (res) {
 		memcpy(addr6, &saddr6.sin6_addr, sizeof saddr6.sin6_addr);
 	} else {
@@ -610,7 +611,7 @@ static void to_zval_read_sin6_addr(const char *data, zval *zv, res_context *ctx)
 	socklen_t size = INET6_ADDRSTRLEN;
 	zend_string *str = zend_string_alloc(size - 1, 0);
 
-	memset(str->val, '\0', size);
+	memset(ZSTR_VAL(str), '\0', size);
 
 	ZVAL_NEW_STR(zv, str);
 
@@ -649,18 +650,18 @@ static void from_zval_write_sun_path(const zval *path, char *sockaddr_un_c, ser_
 	/* code in this file relies on the path being nul terminated, even though
 	 * this is not required, at least on linux for abstract paths. It also
 	 * assumes that the path is not empty */
-	if (path_str->len == 0) {
+	if (ZSTR_LEN(path_str) == 0) {
 		do_from_zval_err(ctx, "%s", "the path is cannot be empty");
 		return;
 	}
-	if (path_str->len >= sizeof(saddr->sun_path)) {
+	if (ZSTR_LEN(path_str) >= sizeof(saddr->sun_path)) {
 		do_from_zval_err(ctx, "the path is too long, the maximum permitted "
 				"length is %ld", sizeof(saddr->sun_path) - 1);
 		return;
 	}
 
-	memcpy(&saddr->sun_path, path_str->val, path_str->len);
-	saddr->sun_path[path_str->len] = '\0';
+	memcpy(&saddr->sun_path, ZSTR_VAL(path_str), ZSTR_LEN(path_str));
+	saddr->sun_path[ZSTR_LEN(path_str)] = '\0';
 
 	zend_string_release(path_str);
 }
@@ -888,8 +889,8 @@ static void from_zval_write_control(const zval			*arr,
 	if (space_left < req_space) {
 		*control_buf = safe_erealloc(*control_buf, 2, req_space, *control_len);
 		*control_len += 2 * req_space;
-		memset(*control_buf, '\0', *control_len - *offset);
-		memcpy(&alloc->data, *control_buf, sizeof *control_buf);
+		memset((char *)*control_buf + *offset, '\0', *control_len - *offset);
+		memcpy(&alloc->data, control_buf, sizeof *control_buf);
 	}
 
 	cmsghdr = (struct cmsghdr*)(((char*)*control_buf) + *offset);
@@ -1206,8 +1207,8 @@ static void to_zval_read_iov(const char *msghdr_c, zval *zv, res_context *ctx)
 		size_t len = MIN(msghdr->msg_iov[i].iov_len, (size_t)bytes_left);
 		zend_string	*buf = zend_string_alloc(len, 0);
 
-		memcpy(buf->val, msghdr->msg_iov[i].iov_base, buf->len);
-		buf->val[buf->len] = '\0';
+		memcpy(ZSTR_VAL(buf), msghdr->msg_iov[i].iov_base, ZSTR_LEN(buf));
+		ZSTR_VAL(buf)[ZSTR_LEN(buf)] = '\0';
 
 		ZVAL_NEW_STR(&elem, buf);
 		add_next_index_zval(zv, &elem);
@@ -1247,24 +1248,24 @@ static void from_zval_write_ifindex(const zval *zv, char *uinteger, ser_context 
 		str = zval_get_string((zval *) zv);
 
 #if HAVE_IF_NAMETOINDEX
-		ret = if_nametoindex(str->val);
+		ret = if_nametoindex(ZSTR_VAL(str));
 		if (ret == 0) {
-			do_from_zval_err(ctx, "no interface with name \"%s\" could be found", str->val);
+			do_from_zval_err(ctx, "no interface with name \"%s\" could be found", ZSTR_VAL(str));
 		}
 #elif defined(SIOCGIFINDEX)
 		{
 			struct ifreq ifr;
-			if (strlcpy(ifr.ifr_name, str->val, sizeof(ifr.ifr_name))
+			if (strlcpy(ifr.ifr_name, ZSTR_VAL(str), sizeof(ifr.ifr_name))
 					>= sizeof(ifr.ifr_name)) {
-				do_from_zval_err(ctx, "the interface name \"%s\" is too large ", str->val);
+				do_from_zval_err(ctx, "the interface name \"%s\" is too large ", ZSTR_VAL(str));
 			} else if (ioctl(ctx->sock->bsd_socket, SIOCGIFINDEX, &ifr) < 0) {
 				if (errno == ENODEV) {
 					do_from_zval_err(ctx, "no interface with name \"%s\" could be "
-							"found", str->val);
+							"found", ZSTR_VAL(str));
 				} else {
 					do_from_zval_err(ctx, "error fetching interface index for "
 							"interface with name \"%s\" (errno %d)",
-							str->val, errno);
+							ZSTR_VAL(str), errno);
 				}
 			} else {
 				ret = (unsigned)ifr.ifr_ifindex;
@@ -1351,15 +1352,13 @@ static void from_zval_write_fd_array_aux(zval *elem, unsigned i, void **args, se
 		php_stream *stream;
 		php_socket *sock;
 
-		ZEND_FETCH_RESOURCE_NO_RETURN(sock, php_socket *, elem, -1,
-				NULL, php_sockets_le_socket());
+		sock = (php_socket *)zend_fetch_resource_ex(elem, NULL, php_sockets_le_socket());
 		if (sock) {
 			iarr[i] = sock->bsd_socket;
 			return;
 		}
 
-		ZEND_FETCH_RESOURCE2_NO_RETURN(stream, php_stream *, elem, -1,
-				NULL, php_file_le_stream(), php_file_le_pstream());
+		stream = (php_stream *)zend_fetch_resource2_ex(elem, NULL, php_file_le_stream(), php_file_le_pstream());
 		if (stream == NULL) {
 			do_from_zval_err(ctx, "resource is not a stream or a socket");
 			return;
@@ -1423,7 +1422,7 @@ void to_zval_read_fd_array(const char *data, zval *zv, res_context *ctx)
 		}
 		if (S_ISSOCK(statbuf.st_mode)) {
 			php_socket *sock = socket_import_file_descriptor(fd);
-			zend_register_resource(&elem, sock, php_sockets_le_socket());
+			ZVAL_RES(&elem, zend_register_resource(sock, php_sockets_le_socket()));
 		} else {
 			php_stream *stream = php_stream_fopen_from_fd(fd, "rw", NULL);
 			php_stream_to_zval(stream, &elem);
@@ -1447,8 +1446,8 @@ void *from_zval_run_conversions(const zval			*container,
 								zend_llist			**allocations /* out */,
 								struct err_s			*err /* in/out */)
 {
-	ser_context ctx = {{0}};
-	char *structure = NULL;
+	ser_context ctx;
+	char *structure;
 
 	*allocations = NULL;
 
@@ -1456,6 +1455,7 @@ void *from_zval_run_conversions(const zval			*container,
 		return NULL;
 	}
 
+	memset(&ctx, 0, sizeof(ctx));
 	zend_hash_init(&ctx.params, 8, NULL, NULL, 0);
 	zend_llist_init(&ctx.keys, sizeof(const char *), NULL, 0);
 	zend_llist_init(&ctx.allocations, sizeof(void *), &free_from_zval_allocation, 0);
@@ -1489,13 +1489,14 @@ zval *to_zval_run_conversions(const char *structure,
 							  const struct key_value *key_value_pairs,
 							  struct err_s *err, zval *zv)
 {
-	res_context				ctx = {{0}, {0}};
+	res_context				ctx;
 	const struct key_value	*kv;
 
 	if (err->has_error) {
 		return NULL;
 	}
 
+	memset(&ctx, 0, sizeof(ctx));
 	zend_llist_init(&ctx.keys, sizeof(const char *), NULL, 0);
 	zend_llist_add_element(&ctx.keys, &top_name);
 

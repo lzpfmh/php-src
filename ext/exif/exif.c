@@ -128,15 +128,13 @@ const zend_function_entry exif_functions[] = {
 };
 /* }}} */
 
-#define EXIF_VERSION "1.4 $Id$"
-
 /* {{{ PHP_MINFO_FUNCTION
  */
 PHP_MINFO_FUNCTION(exif)
 {
 	php_info_print_table_start();
 	php_info_print_table_row(2, "EXIF Support", "enabled");
-	php_info_print_table_row(2, "EXIF Version", EXIF_VERSION);
+	php_info_print_table_row(2, "EXIF Version", PHP_EXIF_VERSION);
 	php_info_print_table_row(2, "Supported EXIF Version", "0220");
 	php_info_print_table_row(2, "Supported filetypes", "JPEG,TIFF");
 	php_info_print_table_end();
@@ -154,14 +152,10 @@ ZEND_BEGIN_MODULE_GLOBALS(exif)
 ZEND_END_MODULE_GLOBALS(exif)
 
 ZEND_DECLARE_MODULE_GLOBALS(exif)
+#define EXIF_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(exif, v)
 
-#ifdef ZTS
-#define EXIF_G(v) ZEND_TSRMG(exif_globals_id, zend_exif_globals *, v)
-#ifdef COMPILE_DL_EXIF
-ZEND_TSRMLS_CACHE_DEFINE;
-#endif
-#else
-#define EXIF_G(v) (exif_globals.v)
+#if defined(ZTS) && defined(COMPILE_DL_EXIF)
+ZEND_TSRMLS_CACHE_DEFINE();
 #endif
 
 /* {{{ PHP_INI
@@ -169,12 +163,12 @@ ZEND_TSRMLS_CACHE_DEFINE;
 
 ZEND_INI_MH(OnUpdateEncode)
 {
-	if (new_value && new_value->len) {
+	if (new_value && ZSTR_LEN(new_value)) {
 		const zend_encoding **return_list;
 		size_t return_size;
-		if (FAILURE == zend_multibyte_parse_encoding_list(new_value->val, new_value->len,
+		if (FAILURE == zend_multibyte_parse_encoding_list(ZSTR_VAL(new_value), ZSTR_LEN(new_value),
 	&return_list, &return_size, 0)) {
-			php_error_docref(NULL, E_WARNING, "Illegal encoding ignored: '%s'", new_value->val);
+			php_error_docref(NULL, E_WARNING, "Illegal encoding ignored: '%s'", ZSTR_VAL(new_value));
 			return FAILURE;
 		}
 		efree(return_list);
@@ -187,9 +181,9 @@ ZEND_INI_MH(OnUpdateDecode)
 	if (new_value) {
 		const zend_encoding **return_list;
 		size_t return_size;
-		if (FAILURE == zend_multibyte_parse_encoding_list(new_value->val, new_value->len,
+		if (FAILURE == zend_multibyte_parse_encoding_list(ZSTR_VAL(new_value), ZSTR_LEN(new_value),
 	&return_list, &return_size, 0)) {
-			php_error_docref(NULL, E_WARNING, "Illegal encoding ignored: '%s'", new_value->val);
+			php_error_docref(NULL, E_WARNING, "Illegal encoding ignored: '%s'", ZSTR_VAL(new_value));
 			return FAILURE;
 		}
 		efree(return_list);
@@ -212,7 +206,7 @@ PHP_INI_END()
 static PHP_GINIT_FUNCTION(exif)
 {
 #if defined(COMPILE_DL_EXIF) && defined(ZTS)
-	ZEND_TSRMLS_CACHE_UPDATE;
+	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 	exif_globals->encode_unicode    = NULL;
 	exif_globals->decode_unicode_be = NULL;
@@ -265,18 +259,12 @@ zend_module_entry exif_module_entry = {
 	PHP_MSHUTDOWN(exif),
 	NULL, NULL,
 	PHP_MINFO(exif),
-#if ZEND_MODULE_API_NO >= 20010901
-	EXIF_VERSION,
-#endif
-#if ZEND_MODULE_API_NO >= 20060613
+	PHP_EXIF_VERSION,
 	PHP_MODULE_GLOBALS(exif),
 	PHP_GINIT(exif),
 	NULL,
 	NULL,
 	STANDARD_MODULE_PROPERTIES_EX
-#else
-	STANDARD_MODULE_PROPERTIES
-#endif
 };
 /* }}} */
 
@@ -2336,7 +2324,7 @@ static char * exif_get_markername(int marker)
 #endif
 /* }}} */
 
-/* {{{ proto string exif_tagname(index)
+/* {{{ proto string exif_tagname(int index)
 	Get headername for index or false if not defined */
 PHP_FUNCTION(exif_tagname)
 {
@@ -2957,13 +2945,13 @@ static int exif_process_IFD_TAG(image_info_type *ImageInfo, char *dir_entry, cha
 					if (length<byte_count-1) {
 						/* When there are any characters after the first NUL */
 						ImageInfo->CopyrightPhotographer  = estrdup(value_ptr);
-						ImageInfo->CopyrightEditor        = estrdup(value_ptr+length+1);
+						ImageInfo->CopyrightEditor        = estrndup(value_ptr+length+1, byte_count-length-1);
 						spprintf(&ImageInfo->Copyright, 0, "%s, %s", value_ptr, value_ptr+length+1);
 						/* format = TAG_FMT_UNDEFINED; this musn't be ASCII         */
 						/* but we are not supposed to change this                   */
 						/* keep in mind that image_info does not store editor value */
 					} else {
-						ImageInfo->Copyright = estrdup(value_ptr);
+						ImageInfo->Copyright = estrndup(value_ptr, byte_count);
 					}
 				}
 				break;
@@ -3054,10 +3042,10 @@ static int exif_process_IFD_TAG(image_info_type *ImageInfo, char *dir_entry, cha
 				break;
 
 			case TAG_MAKE:
-				ImageInfo->make = estrdup(value_ptr);
+				ImageInfo->make = estrndup(value_ptr, byte_count);
 				break;
 			case TAG_MODEL:
-				ImageInfo->model = estrdup(value_ptr);
+				ImageInfo->model = estrndup(value_ptr, byte_count);
 				break;
 
 			case TAG_MAKER_NOTE:
@@ -3889,7 +3877,7 @@ static int exif_read_file(image_info_type *ImageInfo, char *FileName, int read_t
 	}
 
 	base = php_basename(FileName, strlen(FileName), NULL, 0);
-	ImageInfo->FileName          = estrndup(base->val, base->len);
+	ImageInfo->FileName          = estrndup(ZSTR_VAL(base), ZSTR_LEN(base));
 	zend_string_release(base);
 	ImageInfo->read_thumbnail = read_thumbnail;
 	ImageInfo->read_all = read_all;
@@ -3913,7 +3901,7 @@ static int exif_read_file(image_info_type *ImageInfo, char *FileName, int read_t
 }
 /* }}} */
 
-/* {{{ proto array exif_read_data(string filename [, sections_needed [, sub_arrays[, read_thumbnail]]])
+/* {{{ proto array exif_read_data(string filename [, string sections_needed [, bool sub_arrays[, bool read_thumbnail]]])
    Reads header data from the JPEG/TIFF image filename and optionally reads the internal thumbnails */
 PHP_FUNCTION(exif_read_data)
 {
@@ -4086,7 +4074,7 @@ PHP_FUNCTION(exif_read_data)
 	exif_discard_imageinfo(&ImageInfo);
 
 #ifdef EXIF_DEBUG
-	php_error_docref1(NULL, Z_STRVAL_PP(p_name), E_NOTICE, "done");
+	php_error_docref1(NULL, p_name, E_NOTICE, "done");
 #endif
 }
 /* }}} */

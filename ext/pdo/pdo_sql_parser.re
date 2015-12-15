@@ -165,7 +165,7 @@ PDO_API int pdo_parse_params(pdo_stmt_t *stmt, char *inquery, size_t inquery_len
 	}
 
 	if (params && bindno != zend_hash_num_elements(params) && stmt->supports_placeholders == PDO_PLACEHOLDER_NONE) {
-		/* extra bit of validation for instances when same params are bound more then once */
+		/* extra bit of validation for instances when same params are bound more than once */
 		if (query_type != PDO_PLACEHOLDER_POSITIONAL && bindno > zend_hash_num_elements(params)) {
 			int ok = 1;
 			for (plc = placeholders; plc; plc = plc->next) {
@@ -217,7 +217,10 @@ safe:
 						zend_string *buf;
 
 						buf = php_stream_copy_to_mem(stm, PHP_STREAM_COPY_ALL, 0);
-						if (!stmt->dbh->methods->quoter(stmt->dbh, buf->val, buf->len, &plc->quoted, &plc->qlen,
+						if (!buf) {
+							buf = ZSTR_EMPTY_ALLOC();
+						}
+						if (!stmt->dbh->methods->quoter(stmt->dbh, ZSTR_VAL(buf), ZSTR_LEN(buf), &plc->quoted, &plc->qlen,
 								param->param_type)) {
 							/* bork */
 							ret = -1;
@@ -422,9 +425,7 @@ int old_pdo_parse_params(pdo_stmt_t *stmt, char *inquery, int inquery_len, char 
 		padding = 3;
 	}
 	if(params) {
-		HashPosition *param_pos;
-		zend_hash_internal_pointer_reset(params);
-		while ((param == zend_hash_get_current_data_ptr_ex(params, &param_pos)) != NULL) {
+		ZEND_HASH_FOREACH_PTR(params, param) {
 			if(param->parameter) {
 				convert_to_string(param->parameter);
 				/* accommodate a string that needs to be fully quoted
@@ -433,8 +434,7 @@ int old_pdo_parse_params(pdo_stmt_t *stmt, char *inquery, int inquery_len, char 
                 */
 				newbuffer_len += padding * Z_STRLEN_P(param->parameter);
 			}
-			zend_hash_move_forward(params);
-		}
+		} ZEND_HASH_FOREACH_END();
 	}
 	*outquery = (char *) emalloc(newbuffer_len + 1);
 	*outquery_len = 0;

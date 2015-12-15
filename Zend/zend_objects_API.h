@@ -23,6 +23,7 @@
 #define ZEND_OBJECTS_API_H
 
 #include "zend.h"
+#include "zend_compile.h"
 
 #define OBJ_BUCKET_INVALID			(1<<0)
 
@@ -76,8 +77,15 @@ static zend_always_inline void zend_object_release(zend_object *obj)
 	if (--GC_REFCOUNT(obj) == 0) {
 		zend_objects_store_del(obj);
 	} else if (UNEXPECTED(!GC_INFO(obj))) {
-		gc_possible_root(&obj->gc);
+		gc_possible_root((zend_refcounted*)obj);
 	}
+}
+
+static zend_always_inline size_t zend_object_properties_size(zend_class_entry *ce)
+{
+	return sizeof(zval) *
+		(ce->default_properties_count -
+			((ce->ce_flags & ZEND_ACC_USE_GUARDS) ? 0 : 1));
 }
 
 #endif /* ZEND_OBJECTS_H */

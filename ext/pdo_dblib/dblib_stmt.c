@@ -191,16 +191,27 @@ static int pdo_dblib_stmt_describe(pdo_stmt_t *stmt, int colno)
 {
 	pdo_dblib_stmt *S = (pdo_dblib_stmt*)stmt->driver_data;
 	pdo_dblib_db_handle *H = S->H;
-
+	struct pdo_column_data *col;
+	char *fname;
+	
 	if(colno >= stmt->column_count || colno < 0)  {
 		return FAILURE;
 	}
 
-	struct pdo_column_data *col = &stmt->columns[colno];
+	col = &stmt->columns[colno];
+	fname = (char*)dbcolname(H->link, colno+1);
 
-	col->name =  estrdup(dbcolname(H->link, colno+1));
+	if (fname && *fname) {
+		col->name =  zend_string_init(fname, strlen(fname), 0);
+	} else {
+		char buf[16];
+		int len;
+		
+		len = snprintf(buf, sizeof(buf), "computed%d", colno);
+		col->name = zend_string_init(buf, len, 0);
+	}
+
 	col->maxlen = dbcollen(H->link, colno+1);
-	col->namelen = strlen(col->name);
 	col->param_type = PDO_PARAM_STR;
 
 	return 1;

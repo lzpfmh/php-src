@@ -137,9 +137,7 @@ static const zend_function_entry filter_functions[] = {
 /* {{{ filter_module_entry
  */
 zend_module_entry filter_module_entry = {
-#if ZEND_MODULE_API_NO >= 20010901
 	STANDARD_MODULE_HEADER,
-#endif
 	"filter",
 	filter_functions,
 	PHP_MINIT(filter),
@@ -147,14 +145,14 @@ zend_module_entry filter_module_entry = {
 	NULL,
 	PHP_RSHUTDOWN(filter),
 	PHP_MINFO(filter),
-	"0.11.0",
+	PHP_FILTER_VERSION,
 	STANDARD_MODULE_PROPERTIES
 };
 /* }}} */
 
 #ifdef COMPILE_DL_FILTER
 #ifdef ZTS
-ZEND_TSRMLS_CACHE_DEFINE;
+ZEND_TSRMLS_CACHE_DEFINE();
 #endif
 ZEND_GET_MODULE(filter)
 #endif
@@ -164,7 +162,7 @@ static PHP_INI_MH(UpdateDefaultFilter) /* {{{ */
 	int i, size = sizeof(filter_list) / sizeof(filter_list_entry);
 
 	for (i = 0; i < size; ++i) {
-		if ((strcasecmp(new_value->val, filter_list[i].name) == 0)) {
+		if ((strcasecmp(ZSTR_VAL(new_value), filter_list[i].name) == 0)) {
 			IF_G(default_filter) = filter_list[i].id;
 			return SUCCESS;
 		}
@@ -182,7 +180,7 @@ static PHP_INI_MH(OnUpdateFlags)
 	if (!new_value) {
 		IF_G(default_filter_flags) = FILTER_FLAG_NO_ENCODE_QUOTES;
 	} else {
-		IF_G(default_filter_flags) = atoi(new_value->val);
+		IF_G(default_filter_flags) = atoi(ZSTR_VAL(new_value));
 	}
 	return SUCCESS;
 }
@@ -196,7 +194,7 @@ PHP_INI_END()
 static void php_filter_init_globals(zend_filter_globals *filter_globals) /* {{{ */
 {
 #if defined(COMPILE_DL_FILTER) && defined(ZTS)
-ZEND_TSRMLS_CACHE_UPDATE;
+ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 	ZVAL_UNDEF(&filter_globals->post_array);
 	ZVAL_UNDEF(&filter_globals->get_array);
@@ -390,7 +388,13 @@ static void php_zval_filter(zval *value, zend_long filter, zend_long flags, zval
 
 		ce = Z_OBJCE_P(value);
 		if (!ce->__tostring) {
-			ZVAL_FALSE(value);
+			zval_ptr_dtor(value);
+			/* #67167: doesn't return null on failure for objects */
+			if (flags & FILTER_NULL_ON_FAILURE) {
+				ZVAL_NULL(value);
+			} else {
+				ZVAL_FALSE(value);
+			}
 			return;
 		}
 	}
@@ -534,19 +538,15 @@ static zval *php_filter_get_storage(zend_long arg)/* {{{ */
 			break;
 		case PARSE_SERVER:
 			if (PG(auto_globals_jit)) {
-				zend_string *name = zend_string_init("_SERVER", sizeof("_SERVER") - 1, 0);
-				zend_is_auto_global(name);
-				zend_string_release(name);
+				zend_is_auto_global_str(ZEND_STRL("_SERVER"));
 			}
 			array_ptr = &IF_G(server_array);
 			break;
 		case PARSE_ENV:
 			if (PG(auto_globals_jit)) {
-				zend_string *name = zend_string_init("_ENV", sizeof("_ENV") - 1, 0);
-				zend_is_auto_global(name);
-				zend_string_release(name);
+				zend_is_auto_global_str(ZEND_STRL("_ENV"));
 			}
-			array_ptr = &IF_G(env_array) ? &IF_G(env_array) : &PG(http_globals)[TRACK_VARS_ENV];
+			array_ptr = !Z_ISUNDEF(IF_G(env_array)) ? &IF_G(env_array) : &PG(http_globals)[TRACK_VARS_ENV];
 			break;
 		case PARSE_SESSION:
 			/* FIXME: Implement session source */
@@ -690,14 +690,14 @@ static void php_filter_array_handler(zval *input, zval *op, zval *return_value, 
 				zval_ptr_dtor(return_value);
 				RETURN_FALSE;
 	 		}
-			if (arg_key->len == 0) {
+			if (ZSTR_LEN(arg_key) == 0) {
 				php_error_docref(NULL, E_WARNING, "Empty keys are not allowed in the definition array");
 				zval_ptr_dtor(return_value);
 				RETURN_FALSE;
 			}
 			if ((tmp = zend_hash_find(Z_ARRVAL_P(input), arg_key)) == NULL) {
 				if (add_empty) {
-					add_assoc_null_ex(return_value, arg_key->val, arg_key->len);
+					add_assoc_null_ex(return_value, ZSTR_VAL(arg_key), ZSTR_LEN(arg_key));
 				}
 			} else {
 				zval nval;
@@ -804,7 +804,7 @@ PHP_FUNCTION(filter_input_array)
 		return;
 	}
 
-	if (op && (Z_TYPE_P(op) != IS_ARRAY) && (Z_TYPE_P(op) == IS_LONG && !PHP_FILTER_ID_EXISTS(Z_LVAL_P(op)))) {
+	if (op && (Z_TYPE_P(op) != IS_ARRAY) && !(Z_TYPE_P(op) == IS_LONG && PHP_FILTER_ID_EXISTS(Z_LVAL_P(op)))) {
 		RETURN_FALSE;
 	}
 
@@ -849,7 +849,7 @@ PHP_FUNCTION(filter_var_array)
 		return;
 	}
 
-	if (op && (Z_TYPE_P(op) != IS_ARRAY) && (Z_TYPE_P(op) == IS_LONG && !PHP_FILTER_ID_EXISTS(Z_LVAL_P(op)))) {
+	if (op && (Z_TYPE_P(op) != IS_ARRAY) && !(Z_TYPE_P(op) == IS_LONG && PHP_FILTER_ID_EXISTS(Z_LVAL_P(op)))) {
 		RETURN_FALSE;
 	}
 

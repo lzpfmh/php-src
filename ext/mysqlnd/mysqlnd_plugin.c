@@ -71,7 +71,7 @@ enum_func_status mysqlnd_example_plugin_end(void * p)
 {
 	struct st_mysqlnd_typeii_plugin_example * plugin = (struct st_mysqlnd_typeii_plugin_example *) p;
 	DBG_ENTER("mysqlnd_example_plugin_end");
-	mysqlnd_stats_end(plugin->plugin_header.plugin_stats.values);
+	mysqlnd_stats_end(plugin->plugin_header.plugin_stats.values, 1);
 	plugin->plugin_header.plugin_stats.values = NULL;
 	DBG_RETURN(PASS);
 }
@@ -82,7 +82,7 @@ enum_func_status mysqlnd_example_plugin_end(void * p)
 void
 mysqlnd_example_plugin_register(void)
 {
-	mysqlnd_stats_init(&mysqlnd_plugin_example_stats, EXAMPLE_STAT_LAST);
+	mysqlnd_stats_init(&mysqlnd_plugin_example_stats, EXAMPLE_STAT_LAST, 1);
 	mysqlnd_example_plugin.plugin_header.plugin_stats.values = mysqlnd_plugin_example_stats;
 	mysqlnd_plugin_register_ex((struct st_mysqlnd_plugin_header *) &mysqlnd_example_plugin);
 }
@@ -153,25 +153,20 @@ PHPAPI unsigned int mysqlnd_plugin_register_ex(struct st_mysqlnd_plugin_header *
 
 
 /* {{{ mysqlnd_plugin_find */
-PHPAPI void * _mysqlnd_plugin_find(const char * const name)
+PHPAPI void * mysqlnd_plugin_find(const char * const name)
 {
 	void * plugin;
 	if ((plugin = zend_hash_str_find_ptr(&mysqlnd_registered_plugins, name, strlen(name))) != NULL) {
 		return plugin;
 	}
 	return NULL;
-
 }
 /* }}} */
 
 
-/* {{{ _mysqlnd_plugin_apply_with_argument */
-PHPAPI void _mysqlnd_plugin_apply_with_argument(apply_func_arg_t apply_func, void * argument)
+/* {{{ mysqlnd_plugin_apply_with_argument */
+PHPAPI void mysqlnd_plugin_apply_with_argument(apply_func_arg_t apply_func, void * argument)
 {
-	/* Note: We want to be thread-safe (read-only), so we can use neither
-	 * zend_hash_apply_with_argument nor zend_hash_internal_pointer_reset and
-	 * friends
-	 */
 	zval *val;
 	int result;
 
